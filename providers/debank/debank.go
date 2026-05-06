@@ -24,6 +24,8 @@ type Debank interface {
 	GetToken(chainId uint64, tokenAddress common.Address) (*Token, error)
 	GetHistoryTokenPrice(chainId uint64, tokenAddress common.Address, timestamp time.Time) (*float64, error)
 	GetTokenBalances(address string, filterTokens bool) ([]Token, error)
+	SupportedChains() []uint64
+	Close() error
 }
 
 // debank implements the Debank interface.
@@ -156,4 +158,17 @@ func (d *debank) GetTokenBalances(address string, filterTokens bool) ([]Token, e
 	}
 
 	return dbt, nil
+}
+
+func (d *debank) SupportedChains() []uint64 {
+	supportedChains := make([]uint64, 0, len(chainToNameMap))
+	for chainID := range chainToNameMap {
+		supportedChains = append(supportedChains, chainID)
+	}
+	return supportedChains
+}
+
+func (d *debank) Close() error {
+	d.client.CloseIdleConnections()
+	return nil
 }

@@ -30,6 +30,8 @@ type DefiLlama interface {
 	GetCoin(chainId uint64, tokenAddress common.Address) (*Coin, error)
 	GetHistoricalCoin(chainId uint64, tokenAddress common.Address, timestamp time.Time) (*Coin, error)
 	GetMultipleCoins(tokens []QueryTokenPrice) ([]*Coin, error)
+	SupportedChains() []uint64
+	Close() error
 }
 
 // defiLlama implements the DefiLlama interface.
@@ -195,4 +197,17 @@ func (d *defiLlama) GetMultipleCoins(tokens []QueryTokenPrice) ([]*Coin, error) 
 	}
 
 	return coins, nil
+}
+
+func (d *defiLlama) SupportedChains() []uint64 {
+	supportedChains := make([]uint64, 0, len(chainToNameMap))
+	for chainID := range chainToNameMap {
+		supportedChains = append(supportedChains, chainID)
+	}
+	return supportedChains
+}
+
+func (d *defiLlama) Close() error {
+	d.client.CloseIdleConnections()
+	return nil
 }
