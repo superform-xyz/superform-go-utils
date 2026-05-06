@@ -1,4 +1,4 @@
-module github.com/superform/superform-go-utils
+module github.com/superform-xyz/superform-go-utils
 
 go 1.21
 

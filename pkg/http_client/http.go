@@ -7,7 +7,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/superform/superform-go-utils/pkg/backoff"
+	"github.com/superform-xyz/superform-go-utils/pkg/backoff"
 )
 
 const (
