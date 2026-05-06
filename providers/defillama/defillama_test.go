@@ -11,7 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/superform-xyz/superform-go-utils/utils/constants"
+	"github.com/superform/superform-go-utils/utils/constants"
 )
 
 // newTestClient creates an httptest server and returns a defiLlama client wired to it.

@@ -3,7 +3,7 @@ package defillama
 import (
 	"github.com/ethereum/go-ethereum/common"
 
-	"github.com/superform-xyz/superform-go-utils/utils/constants"
+	"github.com/superform/superform-go-utils/utils/constants"
 )
 
 var chainToNameMap = map[uint64]string{

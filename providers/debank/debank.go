@@ -9,9 +9,9 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/pkg/errors"
 
-	"github.com/superform-xyz/superform-go-utils/pkg/http_client"
-	"github.com/superform-xyz/superform-go-utils/utils/constants"
-	"github.com/superform-xyz/superform-go-utils/utils/filter"
+	"github.com/superform/superform-go-utils/pkg/http_client"
+	"github.com/superform/superform-go-utils/utils/constants"
+	"github.com/superform/superform-go-utils/utils/filter"
 )
 
 const (
