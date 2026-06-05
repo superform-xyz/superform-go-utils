@@ -3,7 +3,6 @@ package defillama
 import (
 	"encoding/json"
 	"fmt"
-	"net/http"
 	"strings"
 	"time"
 
@@ -37,7 +36,7 @@ type DefiLlama interface {
 // defiLlama implements the DefiLlama interface.
 type defiLlama struct {
 	coinsBaseUrl string
-	client       *http.Client
+	client       *http_client.Client
 }
 
 var _ DefiLlama = (*defiLlama)(nil)
@@ -46,7 +45,7 @@ var _ DefiLlama = (*defiLlama)(nil)
 func New() DefiLlama {
 	return &defiLlama{
 		coinsBaseUrl: coinsBaseUrl,
-		client:       http_client.NewClientBuilder().SetRetry(0, time.Second*2).Build(),
+		client:       http_client.NewClientBuilder().SetRetry(0, time.Second*2).BuildClient(),
 	}
 }
 

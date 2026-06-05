@@ -12,6 +12,8 @@ import (
 
 var chainToNameMap = map[uint64]string{
 	constants.MainnetChainID:   "eth",
+	constants.FlareChainID:     "flr",
+	constants.StableChainID:    "stable",
 	constants.SonicChainID:     "sonic",
 	constants.AvalancheChainID: "avax",
 	constants.OptimismChainID:  "op",
@@ -27,7 +29,6 @@ var chainToNameMap = map[uint64]string{
 	constants.GnosisChainID:    "xdai",
 	constants.PlumeChainID:     "plume",
 	constants.HyperEvmChainID:  "hyper",
-	constants.FlareChainID:     "flr",
 }
 
 // Token represents a token from Debank API
@@ -40,8 +41,12 @@ type Token struct {
 	OptimizedSymbol string         `json:"optimized_symbol"`
 	Decimals        uint32         `json:"decimals"`
 	LogoURL         string         `json:"logo_url"`
-	ProtocolId      string         `json:"protocol_id"`
+	ProtocolID      string         `json:"protocol_id"`
 	Price           float64        `json:"price"`
+	TimeAt          int64          `json:"time_at"`
+	IsScam          bool           `json:"is_scam"`
+	IsSuspicious    bool           `json:"is_suspicious"`
+	LowCreditScore  bool           `json:"low_credit_score"`
 	IsVerified      bool           `json:"is_verified"`
 	IsCore          bool           `json:"is_core"`
 	IsWallet        bool           `json:"is_wallet"`
@@ -62,8 +67,12 @@ func (t *Token) UnmarshalJSON(data []byte) error {
 		OptimizedSymbol string   `json:"optimized_symbol"`
 		Decimals        uint32   `json:"decimals"`
 		LogoURL         string   `json:"logo_url"`
-		ProtocolId      string   `json:"protocol_id"`
+		ProtocolID      string   `json:"protocol_id"`
 		Price           float64  `json:"price"`
+		TimeAt          float64  `json:"time_at"`
+		IsScam          bool     `json:"is_scam"`
+		IsSuspicious    bool     `json:"is_suspicious"`
+		LowCreditScore  bool     `json:"low_credit_score"`
 		IsVerified      bool     `json:"is_verified"`
 		IsCore          bool     `json:"is_core"`
 		IsWallet        bool     `json:"is_wallet"`
@@ -85,8 +94,12 @@ func (t *Token) UnmarshalJSON(data []byte) error {
 		OptimizedSymbol: aux.OptimizedSymbol,
 		Decimals:        aux.Decimals,
 		LogoURL:         aux.LogoURL,
-		ProtocolId:      aux.ProtocolId,
+		ProtocolID:      aux.ProtocolID,
 		Price:           aux.Price,
+		TimeAt:          int64(aux.TimeAt),
+		IsScam:          aux.IsScam,
+		IsSuspicious:    aux.IsSuspicious,
+		LowCreditScore:  aux.LowCreditScore,
 		IsVerified:      aux.IsVerified,
 		IsCore:          aux.IsCore,
 		IsWallet:        aux.IsWallet,
@@ -114,6 +127,81 @@ func (t *Token) UnmarshalJSON(data []byte) error {
 	}
 
 	return nil
+}
+
+// ProtocolPortfolio models Debank protocol-level portfolio items for one account.
+type ProtocolPortfolio struct {
+	ID                    string          `json:"id"`
+	Chain                 string          `json:"chain"`
+	Name                  string          `json:"name"`
+	SiteURL               string          `json:"site_url"`
+	LogoURL               string          `json:"logo_url"`
+	HasSupportedPortfolio bool            `json:"has_supported_portfolio"`
+	TVL                   float64         `json:"tvl"`
+	PortfolioItemList     []PortfolioItem `json:"portfolio_item_list"`
+}
+
+type PortfolioItem struct {
+	Stats           Stats                  `json:"stats"`
+	AssetDict       map[string]float64     `json:"asset_dict"`
+	AssetTokenList  []AssetToken           `json:"asset_token_list"`
+	WithdrawActions []interface{}          `json:"withdraw_actions"`
+	UpdateAt        float64                `json:"update_at"`
+	Name            string                 `json:"name"`
+	DetailTypes     []string               `json:"detail_types"`
+	Detail          PortfolioDetail        `json:"detail"`
+	ProxyDetail     map[string]interface{} `json:"proxy_detail"`
+	Pool            Pool                   `json:"pool"`
+}
+
+type Stats struct {
+	AssetUSDValue float64 `json:"asset_usd_value"`
+	DebtUSDValue  float64 `json:"debt_usd_value"`
+	NetUSDValue   float64 `json:"net_usd_value"`
+}
+
+type AssetToken struct {
+	ID              string  `json:"id"`
+	Chain           string  `json:"chain"`
+	Name            string  `json:"name"`
+	Symbol          string  `json:"symbol"`
+	DisplaySymbol   *string `json:"display_symbol"`
+	OptimizedSymbol string  `json:"optimized_symbol"`
+	Decimals        int     `json:"decimals"`
+	LogoURL         string  `json:"logo_url"`
+	ProtocolID      string  `json:"protocol_id"`
+	Price           float64 `json:"price"`
+	IsVerified      bool    `json:"is_verified"`
+	IsCore          bool    `json:"is_core"`
+	IsWallet        bool    `json:"is_wallet"`
+	TimeAt          float64 `json:"time_at"`
+	Amount          float64 `json:"amount"`
+}
+
+type PortfolioDetail struct {
+	SupplyTokenList []AssetToken `json:"supply_token_list"`
+	Description     string       `json:"description"`
+}
+
+type Pool struct {
+	ID         string  `json:"id"`
+	Chain      string  `json:"chain"`
+	ProjectID  string  `json:"project_id"`
+	AdapterID  string  `json:"adapter_id"`
+	Controller string  `json:"controller"`
+	Index      *string `json:"index"`
+	TimeAt     int64   `json:"time_at"`
+}
+
+type AccountCredits struct {
+	Balance int64               `json:"balance"`
+	Stats   []AccountCreditStat `json:"stats"`
+}
+
+type AccountCreditStat struct {
+	Usage   int64  `json:"usage"`
+	Remains int64  `json:"remains"`
+	Date    string `json:"date"`
 }
 
 func chainToName(chainId uint64) (string, error) {

@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/superform-xyz/superform-go-utils/pkg/http_client"
 	"github.com/superform-xyz/superform-go-utils/utils/constants"
 )
 
@@ -19,7 +20,11 @@ func newTestClient(t *testing.T, handler http.HandlerFunc) *defiLlama {
 	t.Helper()
 	server := httptest.NewServer(handler)
 	t.Cleanup(server.Close)
-	return &defiLlama{coinsBaseUrl: server.URL, client: server.Client()}
+	return &defiLlama{coinsBaseUrl: server.URL, client: newTestHTTPClient()}
+}
+
+func newTestHTTPClient() *http_client.Client {
+	return http_client.NewClientBuilder().SetRetry(0, time.Millisecond).BuildClient()
 }
 
 func jsonOK(t *testing.T, w http.ResponseWriter, v any) {
@@ -62,7 +67,7 @@ func TestHealthCheck(t *testing.T) {
 	t.Run("http error", func(t *testing.T) {
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
 		server.Close()
-		dl := &defiLlama{coinsBaseUrl: server.URL, client: server.Client()}
+		dl := &defiLlama{coinsBaseUrl: server.URL, client: newTestHTTPClient()}
 
 		assert.Error(t, dl.HealthCheck())
 	})
@@ -131,7 +136,7 @@ func TestGetCoin(t *testing.T) {
 	t.Run("http error", func(t *testing.T) {
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
 		server.Close()
-		dl := &defiLlama{coinsBaseUrl: server.URL, client: server.Client()}
+		dl := &defiLlama{coinsBaseUrl: server.URL, client: newTestHTTPClient()}
 
 		coin, err := dl.GetCoin(constants.MainnetChainID, usdcAddr)
 		assert.Error(t, err)
@@ -205,7 +210,7 @@ func TestGetHistoricalCoin(t *testing.T) {
 	t.Run("http error", func(t *testing.T) {
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
 		server.Close()
-		dl := &defiLlama{coinsBaseUrl: server.URL, client: server.Client()}
+		dl := &defiLlama{coinsBaseUrl: server.URL, client: newTestHTTPClient()}
 
 		coin, err := dl.GetHistoricalCoin(constants.MainnetChainID, usdcAddr, ts)
 		assert.Error(t, err)
@@ -322,7 +327,7 @@ func TestGetMultipleCoins(t *testing.T) {
 	t.Run("http error", func(t *testing.T) {
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
 		server.Close()
-		dl := &defiLlama{coinsBaseUrl: server.URL, client: server.Client()}
+		dl := &defiLlama{coinsBaseUrl: server.URL, client: newTestHTTPClient()}
 
 		coins, err := dl.GetMultipleCoins([]QueryTokenPrice{
 			{ChainId: constants.MainnetChainID, TokenAddress: usdcAddr},
