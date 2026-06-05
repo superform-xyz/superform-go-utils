@@ -112,6 +112,13 @@ func (o *odos) Close() error {
 func (o *odos) postJSON(ctx context.Context, path string, requestBody any, operation string, responseBody any) error {
 	resp, err := o.client.PostJSONWithContext(ctx, o.baseURL+path, requestBody)
 	if err != nil {
+		if statusCode, body, ok := http_client.ResponseStatus(err); ok {
+			body = strings.TrimSpace(body)
+			if body == "" {
+				return fmt.Errorf("%s API returned status %d", operation, statusCode)
+			}
+			return fmt.Errorf("%s API returned status %d: %s", operation, statusCode, body)
+		}
 		return fmt.Errorf("failed to call %s API: %w", operation, err)
 	}
 	if resp.Body != nil {

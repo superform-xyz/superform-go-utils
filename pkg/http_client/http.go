@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -60,6 +61,28 @@ type ClientBuilder interface {
 // Client wraps http.Client with shared request helpers.
 type Client struct {
 	*http.Client
+}
+
+type statusError struct {
+	statusCode int
+	body       string
+}
+
+func (e *statusError) Error() string {
+	if e.body == "" {
+		return fmt.Sprintf("request failed with status %d, error: request failed, no response", e.statusCode)
+	}
+
+	return fmt.Sprintf("request failed with status %d, error: %s", e.statusCode, e.body)
+}
+
+// ResponseStatus returns status details from errors produced for non-2xx responses.
+func ResponseStatus(err error) (statusCode int, body string, ok bool) {
+	var statusErr *statusError
+	if errors.As(err, &statusErr) {
+		return statusErr.statusCode, statusErr.body, true
+	}
+	return 0, "", false
 }
 
 type clientBuilder struct {
@@ -206,14 +229,14 @@ func (t *Transport) RoundTrip(req *http.Request) (*http.Response, error) {
 
 	var resp *http.Response
 	err := backoff.ExponentialWithContext(req.Context(), func() (err error, retry bool) {
-		req := req.Clone(req.Context())
+		retryReq := req.Clone(req.Context())
 
 		// Add auth if its set
 		if t.AuthHeaderKey != "" && t.AuthHeaderVal != "" {
-			req.Header.Set(t.AuthHeaderKey, t.AuthHeaderVal)
+			retryReq.Header.Set(t.AuthHeaderKey, t.AuthHeaderVal)
 		}
 
-		if resp, err = t.BaseTransport.RoundTrip(req); err != nil {
+		if resp, err = t.BaseTransport.RoundTrip(retryReq); err != nil {
 			return fmt.Errorf("request failed: %w", err), true
 		}
 
@@ -230,20 +253,35 @@ func (t *Transport) RoundTrip(req *http.Request) (*http.Response, error) {
 		}
 
 		if resp.StatusCode == http.StatusBadRequest {
-			return fmt.Errorf("request failed with status %d, error: %s", resp.StatusCode, getResponseBodyError(resp)), false
+			return newStatusError(resp), false
 		}
 
 		if resp.StatusCode >= http.StatusInternalServerError {
-			return fmt.Errorf("request failed with status %d, error: %s", resp.StatusCode, getResponseBodyError(resp)), true
+			return newStatusError(resp), true
 		}
 
-		return fmt.Errorf("request failed with status %d, error: %s", resp.StatusCode, getResponseBodyError(resp)), true
+		return newStatusError(resp), true
 	}, t.MaxRetries, t.RetryDelay)
 	if err != nil {
 		return nil, err
 	}
 
 	return resp, nil
+}
+
+func newStatusError(resp *http.Response) error {
+	body, err := io.ReadAll(resp.Body)
+	if closeErr := resp.Body.Close(); closeErr != nil && err == nil {
+		err = closeErr
+	}
+	if err != nil {
+		return fmt.Errorf("request failed with status %d, error: failed to read response body, error: %s", resp.StatusCode, err)
+	}
+
+	return &statusError{
+		statusCode: resp.StatusCode,
+		body:       string(body),
+	}
 }
 
 func getResponseBodyError(resp *http.Response) string {

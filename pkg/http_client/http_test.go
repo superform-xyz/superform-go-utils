@@ -346,6 +346,10 @@ func TestTransportRoundTrip(t *testing.T) {
 		_, err = transport.RoundTrip(req)
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "bad request body")
+		statusCode, body, ok := ResponseStatus(err)
+		require.True(t, ok)
+		assert.Equal(t, http.StatusBadRequest, statusCode)
+		assert.Equal(t, "bad request body", body)
 		assert.Equal(t, 1, callCount)
 	})
 
