@@ -31,6 +31,11 @@ packages:
       dir: "providers/openocean/mocks"
     interfaces:
       Client:
+  github.com/superform-xyz/superform-go-utils/providers/oneinch:
+    config:
+      dir: "providers/oneinch/mocks"
+    interfaces:
+      Client:
   github.com/superform-xyz/superform-go-utils/providers/odos:
     config:
       dir: "providers/odos/mocks"
