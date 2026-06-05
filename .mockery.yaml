@@ -1,0 +1,43 @@
+with-expecter: true
+disable-version-string: true
+issue-845-fix: true
+resolve-type-alias: false
+filename: "mock_{{.InterfaceName | snakecase}}.go"
+mockname: "Mock{{.InterfaceName}}"
+outpkg: "mocks"
+packages:
+  github.com/superform-xyz/superform-go-utils/pkg/http_client:
+    config:
+      dir: "pkg/http_client/mocks"
+    interfaces:
+      ClientBuilder:
+  github.com/superform-xyz/superform-go-utils/providers/debank:
+    config:
+      dir: "providers/debank/mocks"
+    interfaces:
+      Debank:
+  github.com/superform-xyz/superform-go-utils/providers/defillama:
+    config:
+      dir: "providers/defillama/mocks"
+    interfaces:
+      DefiLlama:
+  github.com/superform-xyz/superform-go-utils/providers/kyberswap:
+    config:
+      dir: "providers/kyberswap/mocks"
+    interfaces:
+      Client:
+  github.com/superform-xyz/superform-go-utils/providers/openocean:
+    config:
+      dir: "providers/openocean/mocks"
+    interfaces:
+      Client:
+  github.com/superform-xyz/superform-go-utils/providers/odos:
+    config:
+      dir: "providers/odos/mocks"
+    interfaces:
+      Client:
+  github.com/superform-xyz/superform-go-utils/providers/zerion:
+    config:
+      dir: "providers/zerion/mocks"
+    interfaces:
+      Zerion:

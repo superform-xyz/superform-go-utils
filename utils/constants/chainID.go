@@ -27,6 +27,8 @@ const (
 	HyperEvmChainID = uint64(999)
 	// LineaChainID is the chain ID for Linea
 	LineaChainID = uint64(59144)
+	// MantleChainID is the chain ID for Mantle
+	MantleChainID = uint64(5000)
 	// BeraChainID is the chain ID for Bera
 	BeraChainID = uint64(80094)
 	// GnosisChainID is the chain ID for Gnosis
@@ -35,4 +37,6 @@ const (
 	PlumeChainID = uint64(98866)
 	// FlareChainID is the chain ID for Flare
 	FlareChainID = uint64(14)
+	// StableChainID is the chain ID for Stable
+	StableChainID = uint64(988)
 )

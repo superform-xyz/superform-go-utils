@@ -1,6 +1,9 @@
 package http_client
 
 import (
+	"bytes"
+	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net"
@@ -48,10 +51,15 @@ const (
 
 // ClientBuilder is an interface that allows for building an http.Client with custom settings
 type ClientBuilder interface {
-	Build() *http.Client
+	BuildClient() *Client
 	SetAuth(key, value string) ClientBuilder
 	SetTimeout(timeout time.Duration) ClientBuilder
 	SetRetry(maxRetries uint, retryDelay time.Duration) ClientBuilder
+}
+
+// Client wraps http.Client with shared request helpers.
+type Client struct {
+	*http.Client
 }
 
 type clientBuilder struct {
@@ -67,6 +75,52 @@ var _ ClientBuilder = (*clientBuilder)(nil)
 // NewClientBuilder creates a new ClientBuilder instance with default values
 func NewClientBuilder() ClientBuilder {
 	return &clientBuilder{}
+}
+
+// Get sends a GET request.
+func (c *Client) Get(url string) (*http.Response, error) {
+	return c.GetWithContext(context.Background(), url)
+}
+
+// GetWithContext sends a GET request using the provided context.
+func (c *Client) GetWithContext(ctx context.Context, url string) (*http.Response, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return nil, fmt.Errorf("creating GET request: %w", err)
+	}
+
+	return c.Do(req)
+}
+
+// Post sends a POST request.
+func (c *Client) Post(url, contentType string, body io.Reader) (*http.Response, error) {
+	return c.PostWithContext(context.Background(), url, contentType, body)
+}
+
+// PostWithContext sends a POST request using the provided context.
+func (c *Client) PostWithContext(ctx context.Context, url, contentType string, body io.Reader) (*http.Response, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, body)
+	if err != nil {
+		return nil, fmt.Errorf("creating POST request: %w", err)
+	}
+	req.Header.Set("Content-Type", contentType)
+
+	return c.Do(req)
+}
+
+// PostJSON sends a POST request with a JSON encoded body.
+func (c *Client) PostJSON(url string, payload any) (*http.Response, error) {
+	return c.PostJSONWithContext(context.Background(), url, payload)
+}
+
+// PostJSONWithContext sends a POST request with a JSON encoded body using the provided context.
+func (c *Client) PostJSONWithContext(ctx context.Context, url string, payload any) (*http.Response, error) {
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return nil, fmt.Errorf("marshalling JSON request body: %w", err)
+	}
+
+	return c.PostWithContext(ctx, url, ContentTypeJSON, bytes.NewReader(body))
 }
 
 // SetAuth sets the authentication header key and value
@@ -88,7 +142,7 @@ func (b *clientBuilder) SetRetry(maxRetries uint, retryDelay time.Duration) Clie
 	return b
 }
 
-func (b *clientBuilder) Build() *http.Client {
+func (b *clientBuilder) BuildClient() *Client {
 	var (
 		clientRetryDelay = retryTimeout
 		clientMaxRetries = maxRetries
@@ -107,24 +161,26 @@ func (b *clientBuilder) Build() *http.Client {
 		clientTimeout = *b.timeout
 	}
 
-	return &http.Client{
-		Timeout: clientTimeout,
-		Transport: &Transport{
-			BaseTransport: &http.Transport{
-				DialContext: (&net.Dialer{
-					Timeout:   dialContextTimeout,
-					KeepAlive: dialContextKeepAlive,
-				}).DialContext,
-				TLSHandshakeTimeout:   tlsHandshakeTimeout,
-				ExpectContinueTimeout: expectedContinueTimeout,
-				IdleConnTimeout:       idleConnTimeout,
-				MaxIdleConns:          maxIdleConns,
-				MaxIdleConnsPerHost:   maxIdleConnsPerHost,
+	return &Client{
+		Client: &http.Client{
+			Timeout: clientTimeout,
+			Transport: &Transport{
+				BaseTransport: &http.Transport{
+					DialContext: (&net.Dialer{
+						Timeout:   dialContextTimeout,
+						KeepAlive: dialContextKeepAlive,
+					}).DialContext,
+					TLSHandshakeTimeout:   tlsHandshakeTimeout,
+					ExpectContinueTimeout: expectedContinueTimeout,
+					IdleConnTimeout:       idleConnTimeout,
+					MaxIdleConns:          maxIdleConns,
+					MaxIdleConnsPerHost:   maxIdleConnsPerHost,
+				},
+				MaxRetries:    clientMaxRetries,
+				RetryDelay:    clientRetryDelay,
+				AuthHeaderKey: b.authKey,
+				AuthHeaderVal: b.authValue,
 			},
-			MaxRetries:    clientMaxRetries,
-			RetryDelay:    clientRetryDelay,
-			AuthHeaderKey: b.authKey,
-			AuthHeaderVal: b.authValue,
 		},
 	}
 }
