@@ -54,12 +54,17 @@ func WithHTTPClient(client *http.Client) Option {
 	}
 }
 
-// New creates a new KyberSwap Aggregator API client. clientID is sent as the
-// x-client-id header; pass "" for unattributed requests.
-func New(clientID string, opts ...Option) (Client, error) {
+// WithClientID sets the optional x-client-id header.
+func WithClientID(clientID string) Option {
+	return func(k *kyberswap) {
+		k.clientID = strings.TrimSpace(clientID)
+	}
+}
+
+// New creates a new KyberSwap Aggregator API client.
+func New(opts ...Option) (Client, error) {
 	k := &kyberswap{
-		clientID: strings.TrimSpace(clientID),
-		baseURL:  kyberswapBaseURL,
+		baseURL: kyberswapBaseURL,
 	}
 	for _, opt := range opts {
 		if opt != nil {
