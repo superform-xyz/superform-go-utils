@@ -105,7 +105,7 @@ func (d *debank) HealthCheck(ctx context.Context) error {
 
 // GetToken see https://docs.cloud.debank.com/en/readme/api-pro-reference/token
 func (d *debank) GetToken(ctx context.Context, chainID uint64, tokenAddress common.Address) (*Token, error) {
-	chainName, err := chainToName(chainID)
+	chainName, err := ChainToName(chainID)
 	if err != nil {
 		return nil, err
 	}
@@ -148,7 +148,7 @@ func (d *debank) GetToken(ctx context.Context, chainID uint64, tokenAddress comm
 
 // GetHistoryTokenPrice see https://docs.cloud.debank.com/en/readme/api-pro-reference/token
 func (d *debank) GetHistoryTokenPrice(ctx context.Context, chainID uint64, tokenAddress common.Address, timestamp time.Time) (*float64, error) {
-	chainName, err := chainToName(chainID)
+	chainName, err := ChainToName(chainID)
 	if err != nil {
 		return nil, err
 	}
@@ -363,7 +363,7 @@ func decodeDebankResponse(resp *http.Response, operation string) error {
 }
 
 func debankTokenIDList(chainID uint64, tokenAddresses []common.Address) (string, []string, error) {
-	chainName, err := chainToName(chainID)
+	chainName, err := ChainToName(chainID)
 	if err != nil {
 		return "", nil, err
 	}

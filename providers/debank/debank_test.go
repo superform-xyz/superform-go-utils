@@ -597,17 +597,17 @@ func TestTokenFilter(t *testing.T) {
 	}
 }
 
-// ── chainToName / chainNameToID ─────────────────────────────────────────
+// ── ChainToName / ChainNameToID ─────────────────────────────────────────
 
 func TestChainToName(t *testing.T) {
 	t.Run("known chain", func(t *testing.T) {
-		name, err := chainToName(constants.MainnetChainID)
+		name, err := ChainToName(constants.MainnetChainID)
 		require.NoError(t, err)
 		assert.Equal(t, "eth", name)
 	})
 
 	t.Run("unknown chain", func(t *testing.T) {
-		_, err := chainToName(999999999)
+		_, err := ChainToName(999999999)
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "not found")
 	})
@@ -615,11 +615,11 @@ func TestChainToName(t *testing.T) {
 
 func TestChainNameToID(t *testing.T) {
 	t.Run("known name", func(t *testing.T) {
-		assert.Equal(t, constants.MainnetChainID, chainNameToID("eth"))
+		assert.Equal(t, constants.MainnetChainID, ChainNameToID("eth"))
 	})
 
 	t.Run("unknown name", func(t *testing.T) {
-		assert.Equal(t, uint64(0), chainNameToID("unknown"))
+		assert.Equal(t, uint64(0), ChainNameToID("unknown"))
 	})
 }
 
