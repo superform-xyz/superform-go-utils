@@ -69,8 +69,15 @@ var (
 
 // ── New ─────────────────────────────────────────────────────────────────
 
+func mustNew(t *testing.T, accessKey string, opts ...Option) Debank {
+	t.Helper()
+	c, err := New(accessKey, opts...)
+	require.NoError(t, err)
+	return c
+}
+
 func TestNew(t *testing.T) {
-	d := New("my-key")
+	d := mustNew(t, "my-key")
 	require.NotNil(t, d)
 
 	concrete, ok := d.(*debank)
@@ -80,8 +87,13 @@ func TestNew(t *testing.T) {
 	assert.NotNil(t, concrete.client)
 }
 
+func TestNew_MissingAccessKey(t *testing.T) {
+	_, err := New("")
+	require.Error(t, err)
+}
+
 func TestNew_WithOptions(t *testing.T) {
-	d := New("my-key", WithBaseURL("https://example.com/v1/"), WithRetry(2, time.Second))
+	d := mustNew(t, "my-key", WithBaseURL("https://example.com/v1/"), WithRetry(2, time.Second))
 	require.NotNil(t, d)
 
 	concrete, ok := d.(*debank)
@@ -635,7 +647,7 @@ func TestDebank_Integration(t *testing.T) {
 		t.Skip("DEBANK_API_KEY not set, skipping integration test")
 	}
 
-	d := New(apiKey)
+	d := mustNew(t, apiKey)
 
 	t.Run("get token", func(t *testing.T) {
 		token, err := d.GetToken(context.Background(), constants.MainnetChainID, daiAddr)

@@ -90,9 +90,13 @@ func WithRetry(maxRetries uint, retryDelay time.Duration) Option {
 }
 
 // New creates a new 1inch API client.
-func New(apiKey string, opts ...Option) Client {
+func New(apiKey string, opts ...Option) (Client, error) {
+	apiKey = strings.TrimSpace(apiKey)
+	if apiKey == "" {
+		return nil, fmt.Errorf("oneinch: apiKey is required")
+	}
 	o := &oneInch{
-		apiKey:  strings.TrimSpace(apiKey),
+		apiKey:  apiKey,
 		baseURL: oneInchBaseURL,
 		routers: map[uint64]common.Address{},
 	}
@@ -103,9 +107,7 @@ func New(apiKey string, opts ...Option) Client {
 	}
 	if o.client == nil {
 		builder := http_client.NewClientBuilder().SetRetry(0, 10*time.Second)
-		if o.apiKey != "" {
-			builder.SetAuth(authHeader, fmt.Sprintf("Bearer %s", o.apiKey))
-		}
+		builder.SetAuth(authHeader, fmt.Sprintf("Bearer %s", o.apiKey))
 		if o.timeout != nil {
 			builder.SetTimeout(*o.timeout)
 		}
@@ -114,7 +116,7 @@ func New(apiKey string, opts ...Option) Client {
 		}
 		o.client = builder.BuildClient()
 	}
-	return o
+	return o, nil
 }
 
 func (o *oneInch) GetQuote(ctx context.Context, req QuoteRequest) (*Quote, error) {

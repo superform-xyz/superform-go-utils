@@ -1,8 +1,11 @@
 package defillama
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
+	"io"
+	"net/http"
 	"strings"
 	"time"
 
@@ -19,16 +22,17 @@ const (
 
 var (
 	// ErrTokenNotFound is returned when the token is not found.
-	ErrTokenNotFound = errors.New("token not found")
+	ErrTokenNotFound    = errors.New("token not found")
+	ErrUnsupportedChain = errors.New("unsupported chain")
 )
 
 // DefiLlama represents the behavior of the DeFi Llama service.
 // Ref: https://defillama.com/docs/api
 type DefiLlama interface {
-	HealthCheck() error
-	GetCoin(chainId uint64, tokenAddress common.Address) (*Coin, error)
-	GetHistoricalCoin(chainId uint64, tokenAddress common.Address, timestamp time.Time) (*Coin, error)
-	GetMultipleCoins(tokens []QueryTokenPrice) ([]*Coin, error)
+	HealthCheck(ctx context.Context) error
+	GetCoin(ctx context.Context, chainId uint64, tokenAddress common.Address) (*Coin, error)
+	GetHistoricalCoin(ctx context.Context, chainId uint64, tokenAddress common.Address, timestamp time.Time) (*Coin, error)
+	GetMultipleCoins(ctx context.Context, tokens []QueryTokenPrice) ([]*Coin, error)
 	SupportedChains() []uint64
 	Close() error
 }
@@ -37,36 +41,64 @@ type DefiLlama interface {
 type defiLlama struct {
 	coinsBaseUrl string
 	client       *http_client.Client
+	chainToName  map[uint64]string
 }
 
 var _ DefiLlama = (*defiLlama)(nil)
 
-// New creates a new DeFi Llama service.
-func New() DefiLlama {
-	return &defiLlama{
-		coinsBaseUrl: coinsBaseUrl,
-		client:       http_client.NewClientBuilder().SetRetry(0, time.Second*2).BuildClient(),
+type Option func(*defiLlama)
+
+func WithBaseURL(baseURL string) Option {
+	return func(d *defiLlama) {
+		baseURL = strings.TrimRight(strings.TrimSpace(baseURL), "/")
+		if baseURL != "" {
+			d.coinsBaseUrl = baseURL
+		}
 	}
+}
+
+func WithHTTPClient(client *http.Client) Option {
+	return func(d *defiLlama) {
+		if client != nil {
+			d.client = &http_client.Client{Client: client}
+		}
+	}
+}
+
+func WithChainMap(chainMap map[uint64]string) Option {
+	return func(d *defiLlama) {
+		if len(chainMap) > 0 {
+			d.chainToName = cloneChainMap(chainMap)
+		}
+	}
+}
+
+// New creates a new DeFi Llama service.
+func New(opts ...Option) (DefiLlama, error) {
+	d := &defiLlama{
+		coinsBaseUrl: coinsBaseUrl,
+		chainToName:  cloneChainMap(chainToNameMap),
+	}
+	for _, opt := range opts {
+		if opt != nil {
+			opt(d)
+		}
+	}
+	if d.client == nil {
+		d.client = http_client.NewClientBuilder().SetRetry(0, time.Second*2).BuildClient()
+	}
+
+	return d, nil
 }
 
 // HealthCheck returns an error if there is a problem with the service.
-func (d *defiLlama) HealthCheck() error {
-	path := fmt.Sprintf("%s/prices/current/ethereum:0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48", d.coinsBaseUrl)
-	resp, err := d.client.Get(path)
-	if err != nil {
-		return errors.Wrap(err, "failed to get prices")
-	}
-
-	if resp.Body != nil {
-		defer resp.Body.Close()
-	}
-
+func (d *defiLlama) HealthCheck(ctx context.Context) error {
 	var coins CoinsResponse
-	return json.NewDecoder(resp.Body).Decode(&coins)
+	return d.getCoins(ctx, "ethereum:0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48", &coins)
 }
 
 // GetTokenPrice returns the price of a token on a chain.
-func (d *defiLlama) GetCoin(chainID uint64, tokenAddress common.Address) (*Coin, error) {
+func (d *defiLlama) GetCoin(ctx context.Context, chainID uint64, tokenAddress common.Address) (*Coin, error) {
 	var (
 		token = tokenAddress
 	)
@@ -75,21 +107,14 @@ func (d *defiLlama) GetCoin(chainID uint64, tokenAddress common.Address) (*Coin,
 		token.SetBytes(constants.GetNullAddress().Bytes())
 	}
 
-	chainAndAddress := fmt.Sprintf("%s:%s", chainToNameMap[chainID], token)
-	path := fmt.Sprintf("%s/prices/current/%s", d.coinsBaseUrl, chainAndAddress)
-
-	resp, err := d.client.Get(path)
+	chainAndAddress, err := d.chainAndAddress(chainID, token)
 	if err != nil {
-		return nil, errors.Wrap(err, "failed to get prices")
-	}
-
-	if resp.Body != nil {
-		defer resp.Body.Close()
+		return nil, err
 	}
 
 	var coins CoinsResponse
-	if err = json.NewDecoder(resp.Body).Decode(&coins); err != nil {
-		return nil, errors.Wrap(err, "failed to decode prices")
+	if err = d.getCoins(ctx, chainAndAddress, &coins); err != nil {
+		return nil, err
 	}
 
 	coin, coinOk := coins.Coins[chainAndAddress]
@@ -104,7 +129,7 @@ func (d *defiLlama) GetCoin(chainID uint64, tokenAddress common.Address) (*Coin,
 }
 
 // GetHistoricalCoin returns the historical coin details.
-func (d *defiLlama) GetHistoricalCoin(chainId uint64, tokenAddress common.Address, timestamp time.Time) (*Coin, error) {
+func (d *defiLlama) GetHistoricalCoin(ctx context.Context, chainId uint64, tokenAddress common.Address, timestamp time.Time) (*Coin, error) {
 	var (
 		token = tokenAddress
 	)
@@ -113,22 +138,14 @@ func (d *defiLlama) GetHistoricalCoin(chainId uint64, tokenAddress common.Addres
 		token.SetBytes(constants.GetNullAddress().Bytes())
 	}
 
-	chainAndAddress := fmt.Sprintf("%s:%s", chainToNameMap[chainId], token)
-	path := fmt.Sprintf(d.coinsBaseUrl+"/prices/historical/%d/%s", timestamp.Unix(), chainAndAddress)
+	chainAndAddress, err := d.chainAndAddress(chainId, token)
+	if err != nil {
+		return nil, err
+	}
 
 	var coins CoinsResponse
-
-	resp, err := d.client.Get(path)
-	if err != nil {
-		return nil, errors.Wrap(err, "failed to get prices")
-	}
-
-	if resp.Body != nil {
-		defer resp.Body.Close()
-	}
-
-	if err = json.NewDecoder(resp.Body).Decode(&coins); err != nil {
-		return nil, errors.Wrap(err, "failed to decode prices")
+	if err = d.getHistoricalCoins(ctx, timestamp, chainAndAddress, &coins); err != nil {
+		return nil, err
 	}
 
 	coin, coinOk := coins.Coins[chainAndAddress]
@@ -143,10 +160,10 @@ func (d *defiLlama) GetHistoricalCoin(chainId uint64, tokenAddress common.Addres
 }
 
 // GetMultipleCoins returns tokens details for multiple tokens.
-func (d *defiLlama) GetMultipleCoins(tokens []QueryTokenPrice) ([]*Coin, error) {
+func (d *defiLlama) GetMultipleCoins(ctx context.Context, tokens []QueryTokenPrice) ([]*Coin, error) {
 	tokenIds := make([]string, 0, len(tokens))
 	for _, token := range tokens {
-		chainName, chainNameOk := chainToNameMap[token.ChainId]
+		chainName, chainNameOk := d.chainToName[token.ChainId]
 		if !chainNameOk {
 			continue
 		}
@@ -158,19 +175,13 @@ func (d *defiLlama) GetMultipleCoins(tokens []QueryTokenPrice) ([]*Coin, error) 
 		tokenIds = append(tokenIds, fmt.Sprintf("%s:%s", chainName, token.TokenAddress))
 	}
 
-	path := fmt.Sprintf(d.coinsBaseUrl+"/prices/current/%s", strings.Join(tokenIds, ","))
-	resp, err := d.client.Get(path)
-	if err != nil {
-		return nil, errors.Wrap(err, "failed to get prices")
-	}
-
-	if resp.Body != nil {
-		defer resp.Body.Close()
+	if len(tokenIds) == 0 {
+		return []*Coin{}, nil
 	}
 
 	var coinsResp CoinsResponse
-	if err = json.NewDecoder(resp.Body).Decode(&coinsResp); err != nil {
-		return nil, errors.Wrap(err, "failed to decode prices")
+	if err := d.getCoins(ctx, strings.Join(tokenIds, ","), &coinsResp); err != nil {
+		return nil, err
 	}
 
 	coins := make([]*Coin, 0, len(tokens))
@@ -182,7 +193,11 @@ func (d *defiLlama) GetMultipleCoins(tokens []QueryTokenPrice) ([]*Coin, error) 
 			tokenToUse.SetBytes(constants.GetNullAddress().Bytes())
 		}
 
-		chainAndAddress := fmt.Sprintf("%s:%s", chainToNameMap[token.ChainId], tokenToUse)
+		chainName, chainNameOk := d.chainToName[token.ChainId]
+		if !chainNameOk {
+			continue
+		}
+		chainAndAddress := fmt.Sprintf("%s:%s", chainName, tokenToUse)
 
 		coin, coinOk := coinsResp.Coins[chainAndAddress]
 		if !coinOk {
@@ -199,8 +214,8 @@ func (d *defiLlama) GetMultipleCoins(tokens []QueryTokenPrice) ([]*Coin, error) 
 }
 
 func (d *defiLlama) SupportedChains() []uint64 {
-	supportedChains := make([]uint64, 0, len(chainToNameMap))
-	for chainID := range chainToNameMap {
+	supportedChains := make([]uint64, 0, len(d.chainToName))
+	for chainID := range d.chainToName {
 		supportedChains = append(supportedChains, chainID)
 	}
 	return supportedChains
@@ -209,4 +224,53 @@ func (d *defiLlama) SupportedChains() []uint64 {
 func (d *defiLlama) Close() error {
 	d.client.CloseIdleConnections()
 	return nil
+}
+
+func (d *defiLlama) chainAndAddress(chainID uint64, token common.Address) (string, error) {
+	chainName, ok := d.chainToName[chainID]
+	if !ok {
+		return "", fmt.Errorf("%w: %d", ErrUnsupportedChain, chainID)
+	}
+	return fmt.Sprintf("%s:%s", chainName, token), nil
+}
+
+func (d *defiLlama) getCoins(ctx context.Context, tokenIDs string, out *CoinsResponse) error {
+	path := fmt.Sprintf("%s/prices/current/%s", d.coinsBaseUrl, tokenIDs)
+	return d.get(ctx, path, out)
+}
+
+func (d *defiLlama) getHistoricalCoins(ctx context.Context, timestamp time.Time, tokenIDs string, out *CoinsResponse) error {
+	path := fmt.Sprintf("%s/prices/historical/%d/%s", d.coinsBaseUrl, timestamp.Unix(), tokenIDs)
+	return d.get(ctx, path, out)
+}
+
+func (d *defiLlama) get(ctx context.Context, path string, out *CoinsResponse) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	resp, err := d.client.GetWithContext(ctx, path)
+	if err != nil {
+		return errors.Wrap(err, "failed to get prices")
+	}
+	if resp.Body != nil {
+		defer resp.Body.Close()
+	}
+	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
+		return fmt.Errorf("defillama API returned status %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+	}
+	if err = json.NewDecoder(resp.Body).Decode(out); err != nil {
+		return errors.Wrap(err, "failed to decode prices")
+	}
+	return nil
+}
+
+func cloneChainMap(chainToName map[uint64]string) map[uint64]string {
+	cloned := make(map[uint64]string, len(chainToName))
+	for chainID, chainName := range chainToName {
+		if chainName = strings.TrimSpace(chainName); chainName != "" {
+			cloned[chainID] = chainName
+		}
+	}
+	return cloned
 }

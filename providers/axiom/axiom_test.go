@@ -15,8 +15,20 @@ import (
 	"github.com/superform-xyz/superform-go-utils/utils/constants"
 )
 
+func mustNew(t *testing.T, opts ...Option) Axiom {
+	t.Helper()
+	c, err := New(opts...)
+	require.NoError(t, err)
+	return c
+}
+
+func TestNew_MissingBaseURL(t *testing.T) {
+	_, err := New()
+	require.Error(t, err)
+}
+
 func TestNew(t *testing.T) {
-	p := New("https://axiom.example.com/")
+	p := mustNew(t, WithBaseURL("https://axiom.example.com/"))
 	require.NotNil(t, p)
 
 	concrete, ok := p.(*axiom)
@@ -26,7 +38,7 @@ func TestNew(t *testing.T) {
 }
 
 func TestSupportsChain(t *testing.T) {
-	p := New("http://unused")
+	p := mustNew(t, WithBaseURL("http://unused"))
 
 	assert.Contains(t, p.SupportedChains(), constants.MainnetChainID)
 	assert.Contains(t, p.SupportedChains(), constants.BaseChainID)
@@ -43,7 +55,7 @@ func TestGetTokenPrice_Success(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	p := New(srv.URL, WithHTTPClient(srv.Client()))
+	p := mustNew(t, WithBaseURL(srv.URL), WithHTTPClient(srv.Client()))
 	got, err := p.GetTokenPrice(
 		context.Background(),
 		constants.BaseChainID,
@@ -63,7 +75,7 @@ func TestGetTokenPrice_NotFound(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	p := New(srv.URL, WithHTTPClient(srv.Client()))
+	p := mustNew(t, WithBaseURL(srv.URL), WithHTTPClient(srv.Client()))
 	_, err := p.GetTokenPrice(context.Background(), constants.MainnetChainID, common.HexToAddress("0xdeadbeef"))
 	assert.ErrorIs(t, err, ErrTokenNotFound)
 }
@@ -74,7 +86,7 @@ func TestGetTokenPrice_AuthRejected(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	p := New(srv.URL, WithHTTPClient(srv.Client()))
+	p := mustNew(t, WithBaseURL(srv.URL), WithHTTPClient(srv.Client()))
 	_, err := p.GetTokenPrice(
 		context.Background(),
 		constants.MainnetChainID,
@@ -89,7 +101,7 @@ func TestGetTokenPrice_ServerErrorIsUpstream(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	p := New(srv.URL, WithHTTPClient(srv.Client()))
+	p := mustNew(t, WithBaseURL(srv.URL), WithHTTPClient(srv.Client()))
 	_, err := p.GetTokenPrice(context.Background(), constants.MainnetChainID, common.HexToAddress("0x1"))
 	require.Error(t, err)
 	assert.ErrorIs(t, err, ErrUpstream)
@@ -103,7 +115,7 @@ func TestGetTokenPrice_TooManyRequestsIsRateLimited(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	p := New(srv.URL, WithHTTPClient(srv.Client()))
+	p := mustNew(t, WithBaseURL(srv.URL), WithHTTPClient(srv.Client()))
 	_, err := p.GetTokenPrice(context.Background(), constants.MainnetChainID, common.HexToAddress("0x1"))
 	require.Error(t, err)
 	assert.ErrorIs(t, err, ErrRateLimited)
@@ -116,7 +128,7 @@ func TestGetTokenPrice_ParseError(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	p := New(srv.URL, WithHTTPClient(srv.Client()))
+	p := mustNew(t, WithBaseURL(srv.URL), WithHTTPClient(srv.Client()))
 	_, err := p.GetTokenPrice(context.Background(), constants.MainnetChainID, common.HexToAddress("0x1"))
 	require.Error(t, err)
 }
@@ -127,13 +139,13 @@ func TestGetTokenPrice_ZeroValueIsNotFound(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	p := New(srv.URL, WithHTTPClient(srv.Client()))
+	p := mustNew(t, WithBaseURL(srv.URL), WithHTTPClient(srv.Client()))
 	_, err := p.GetTokenPrice(context.Background(), constants.MainnetChainID, common.HexToAddress("0x1"))
 	assert.ErrorIs(t, err, ErrTokenNotFound)
 }
 
 func TestGetTokenPrice_UnsupportedChain(t *testing.T) {
-	p := New("http://unused")
+	p := mustNew(t, WithBaseURL("http://unused"))
 	_, err := p.GetTokenPrice(context.Background(), 99999, common.HexToAddress("0x1"))
 	assert.ErrorIs(t, err, ErrUnsupportedChain)
 }
@@ -144,12 +156,12 @@ func TestHealthCheck_TokenNotFoundIsHealthy(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	p := New(srv.URL, WithHTTPClient(srv.Client()))
+	p := mustNew(t, WithBaseURL(srv.URL), WithHTTPClient(srv.Client()))
 	assert.NoError(t, p.HealthCheck(context.Background()))
 }
 
 func TestGetTokenPrice_ContextCanceled(t *testing.T) {
-	p := New("http://unused")
+	p := mustNew(t, WithBaseURL("http://unused"))
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 

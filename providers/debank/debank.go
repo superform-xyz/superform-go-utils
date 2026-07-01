@@ -75,7 +75,11 @@ func WithRetry(maxRetries uint, retryDelay time.Duration) Option {
 }
 
 // New creates a new Debank service.
-func New(accessKey string, opts ...Option) Debank {
+func New(accessKey string, opts ...Option) (Debank, error) {
+	accessKey = strings.TrimSpace(accessKey)
+	if accessKey == "" {
+		return nil, fmt.Errorf("debank: accessKey is required")
+	}
 	d := &debank{
 		accessKey: accessKey,
 		baseUrl:   debankBaseURL,
@@ -92,7 +96,7 @@ func New(accessKey string, opts ...Option) Debank {
 		}
 		d.client = builder.BuildClient()
 	}
-	return d
+	return d, nil
 }
 
 // HealthCheck returns an error if there is a problem with the service.

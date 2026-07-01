@@ -24,13 +24,21 @@ var (
 	testToAddress   = common.HexToAddress("0x2222222222222222222222222222222222222222")
 )
 
+func mustNew(t *testing.T, apiKey string, opts ...Option) Client {
+	t.Helper()
+	c, err := New(apiKey, opts...)
+	require.NoError(t, err)
+	return c
+}
+
 func newTestClient(t *testing.T, handler http.HandlerFunc) *oneInch {
 	t.Helper()
 
 	server := httptest.NewServer(handler)
 	t.Cleanup(server.Close)
 
-	client, ok := New(
+	client, ok := mustNew(
+		t,
 		"test-key",
 		WithBaseURL(server.URL),
 		WithRetry(0, time.Millisecond),
@@ -51,8 +59,14 @@ func writeJSON(t *testing.T, w http.ResponseWriter, v any) {
 	require.NoError(t, json.NewEncoder(w).Encode(v))
 }
 
+func TestNew_MissingAPIKey(t *testing.T) {
+	_, err := New("")
+	require.Error(t, err)
+}
+
 func TestNew(t *testing.T) {
-	client := New(
+	client := mustNew(
+		t,
 		"test-key",
 		WithBaseURL("https://example.com/"),
 		WithRetry(2, time.Second),

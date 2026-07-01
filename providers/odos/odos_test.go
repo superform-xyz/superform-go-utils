@@ -14,13 +14,20 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func mustNew(t *testing.T, opts ...Option) Client {
+	t.Helper()
+	c, err := New(opts...)
+	require.NoError(t, err)
+	return c
+}
+
 func newTestClient(t *testing.T, handler http.HandlerFunc) *odos {
 	t.Helper()
 
 	server := httptest.NewServer(handler)
 	t.Cleanup(server.Close)
 
-	client, ok := New(WithBaseURL(server.URL), WithRetry(0, time.Millisecond)).(*odos)
+	client, ok := mustNew(t, WithBaseURL(server.URL), WithRetry(0, time.Millisecond)).(*odos)
 	require.True(t, ok)
 	return client
 }
@@ -33,7 +40,7 @@ func writeJSON(t *testing.T, w http.ResponseWriter, v any) {
 }
 
 func TestNew(t *testing.T) {
-	client := New(WithBaseURL("https://example.com/"), WithTimeout(15*time.Second), WithRetry(2, time.Second))
+	client := mustNew(t, WithBaseURL("https://example.com/"), WithTimeout(15*time.Second), WithRetry(2, time.Second))
 	require.NotNil(t, client)
 
 	concrete, ok := client.(*odos)
