@@ -18,9 +18,9 @@ import (
 
 const testRouterAddress = "0x6131B5fae19EA4f9D964eAc0408E4408b66337b5"
 
-func mustNew(t *testing.T, clientID string, opts ...Option) Client {
+func mustNew(t *testing.T, opts ...Option) Client {
 	t.Helper()
-	c, err := New(clientID, opts...)
+	c, err := New(opts...)
 	require.NoError(t, err)
 	return c
 }
@@ -31,24 +31,29 @@ func newTestClient(t *testing.T, handler http.HandlerFunc) *kyberswap {
 	server := httptest.NewServer(handler)
 	t.Cleanup(server.Close)
 
-	client, ok := mustNew(t, "superform", WithBaseURL(server.URL)).(*kyberswap)
+	client, ok := mustNew(t, WithClientID("superform"), WithBaseURL(server.URL)).(*kyberswap)
 	require.True(t, ok)
 	return client
 }
 
 func TestNew(t *testing.T) {
-	client := mustNew(t, "client-id")
+	client := mustNew(t)
 
 	require.NotNil(t, client)
 
 	concrete, ok := client.(*kyberswap)
 	require.True(t, ok)
-	assert.Equal(t, "client-id", concrete.clientID)
+	assert.Empty(t, concrete.clientID)
 	assert.Equal(t, kyberswapBaseURL, concrete.baseURL)
 	assert.NotNil(t, concrete.client)
 
+	client = mustNew(t, WithClientID(" client-id "))
+	concrete, ok = client.(*kyberswap)
+	require.True(t, ok)
+	assert.Equal(t, "client-id", concrete.clientID)
+
 	customHTTPClient := &http.Client{Timeout: time.Second}
-	client = mustNew(t, "client-id", WithBaseURL("https://example.com/"), WithHTTPClient(customHTTPClient))
+	client = mustNew(t, WithClientID("client-id"), WithBaseURL("https://example.com/"), WithHTTPClient(customHTTPClient))
 	concrete, ok = client.(*kyberswap)
 	require.True(t, ok)
 	assert.Equal(t, "https://example.com", concrete.baseURL)
@@ -98,7 +103,7 @@ func TestGetRoute(t *testing.T) {
 		}))
 		defer server.Close()
 
-		client, ok := mustNew(t, "custom-client", WithBaseURL(server.URL), WithHTTPClient(server.Client())).(*kyberswap)
+		client, ok := mustNew(t, WithClientID("custom-client"), WithBaseURL(server.URL), WithHTTPClient(server.Client())).(*kyberswap)
 		require.True(t, ok)
 
 		route, err := client.GetRoute(context.Background(), RouteRequest{
@@ -370,7 +375,7 @@ func TestBuildUnmarshalJSON(t *testing.T) {
 }
 
 func TestSupportedChains(t *testing.T) {
-	client := mustNew(t, "client-id")
+	client := mustNew(t)
 
 	assert.Contains(t, client.SupportedChains(), constants.MainnetChainID)
 	assert.Contains(t, client.SupportedChains(), constants.MantleChainID)
