@@ -109,7 +109,7 @@ func (t *Token) UnmarshalJSON(data []byte) error {
 
 	// Set ChainID based on Chain field
 	if aux.Chain != "" {
-		t.ChainID = chainNameToID(aux.Chain)
+		t.ChainID = ChainNameToID(aux.Chain)
 	}
 
 	// if the token ID is the same as the chain name, it's the native token
@@ -204,14 +204,16 @@ type AccountCreditStat struct {
 	Date    string `json:"date"`
 }
 
-func chainToName(chainId uint64) (string, error) {
-	if name, ok := chainToNameMap[chainId]; ok {
+// ChainToName returns the Debank chain slug for a supported EVM chain ID.
+func ChainToName(chainID uint64) (string, error) {
+	if name, ok := chainToNameMap[chainID]; ok {
 		return name, nil
 	}
-	return "", fmt.Errorf("chain ID %d not found", chainId)
+	return "", fmt.Errorf("chain ID %d not found", chainID)
 }
 
-func chainNameToID(chainName string) uint64 {
+// ChainNameToID returns the EVM chain ID for a Debank chain slug, or 0 when unsupported.
+func ChainNameToID(chainName string) uint64 {
 	for id, name := range chainToNameMap {
 		if name == chainName {
 			return uint64(id)
