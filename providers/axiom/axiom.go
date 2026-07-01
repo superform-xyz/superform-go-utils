@@ -46,6 +46,12 @@ var _ Axiom = (*axiom)(nil)
 
 type Option func(*axiom)
 
+func WithBaseURL(baseURL string) Option {
+	return func(a *axiom) {
+		a.baseURL = strings.TrimRight(strings.TrimSpace(baseURL), "/")
+	}
+}
+
 func WithHTTPClient(client *http.Client) Option {
 	return func(a *axiom) {
 		if client != nil {
@@ -54,28 +60,30 @@ func WithHTTPClient(client *http.Client) Option {
 	}
 }
 
-func WithSupportedChains(chainIDs []uint64) Option {
+func WithSupportedChains(chains []uint64) Option {
 	return func(a *axiom) {
-		a.supportedChains = make(map[uint64]struct{}, len(chainIDs))
-		for _, chainID := range chainIDs {
-			a.supportedChains[chainID] = struct{}{}
+		if len(chains) > 0 {
+			a.supportedChains = supportedChainSet(chains)
 		}
 	}
 }
 
-// New creates a new Axiom valuation oracle client.
-func New(baseURL string, opts ...Option) Axiom {
+// New creates a new Axiom valuation oracle client. A base URL is required.
+func New(opts ...Option) (Axiom, error) {
 	a := &axiom{
-		baseURL: strings.TrimRight(strings.TrimSpace(baseURL), "/"),
-		client:  &http.Client{Timeout: defaultTimeout},
+		client:          &http.Client{Timeout: defaultTimeout},
+		supportedChains: supportedChainSet(supportedChainIDs()),
 	}
-	WithSupportedChains(supportedChainIDs())(a)
 	for _, opt := range opts {
 		if opt != nil {
 			opt(a)
 		}
 	}
-	return a
+	if a.baseURL == "" {
+		return nil, fmt.Errorf("axiom: baseURL is required")
+	}
+
+	return a, nil
 }
 
 func (a *axiom) HealthCheck(ctx context.Context) error {
@@ -160,6 +168,14 @@ func supportedChainIDs() []uint64 {
 		chains = append(chains, chainID)
 	}
 	return chains
+}
+
+func supportedChainSet(chainIDs []uint64) map[uint64]struct{} {
+	supported := make(map[uint64]struct{}, len(chainIDs))
+	for _, chainID := range chainIDs {
+		supported[chainID] = struct{}{}
+	}
+	return supported
 }
 
 func decodeStatus(resp *http.Response) error {

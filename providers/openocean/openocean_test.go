@@ -13,11 +13,17 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/superform-xyz/superform-go-utils/pkg/http_client"
 	"github.com/superform-xyz/superform-go-utils/utils/constants"
 )
 
 const testRouterAddress = "0x6352a56caadC4F1E25CD6c75970Fa768A3304e64"
+
+func mustNew(t *testing.T, apiKey string, opts ...Option) Client {
+	t.Helper()
+	c, err := New(apiKey, opts...)
+	require.NoError(t, err)
+	return c
+}
 
 func newTestClient(t *testing.T, handler http.HandlerFunc) *openOcean {
 	t.Helper()
@@ -25,18 +31,18 @@ func newTestClient(t *testing.T, handler http.HandlerFunc) *openOcean {
 	server := httptest.NewServer(handler)
 	t.Cleanup(server.Close)
 
-	return &openOcean{
-		apiKey:  "test-openocean-api-key",
-		baseURL: server.URL,
-		client: http_client.NewClientBuilder().
-			SetAuth(apiKeyHeader, "test-openocean-api-key").
-			SetRetry(0, time.Millisecond).
-			BuildClient(),
-	}
+	client, ok := mustNew(t, "test-openocean-api-key", WithBaseURL(server.URL)).(*openOcean)
+	require.True(t, ok)
+	return client
+}
+
+func TestNew_MissingAPIKey(t *testing.T) {
+	_, err := New("")
+	require.Error(t, err)
 }
 
 func TestNew(t *testing.T) {
-	client := New("client-id")
+	client := mustNew(t, "client-id")
 
 	require.NotNil(t, client)
 
@@ -45,6 +51,13 @@ func TestNew(t *testing.T) {
 	assert.Equal(t, "client-id", concrete.apiKey)
 	assert.Equal(t, openOceanBaseURL, concrete.baseURL)
 	assert.NotNil(t, concrete.client)
+
+	customHTTPClient := &http.Client{Timeout: time.Second}
+	client = mustNew(t, "client-id", WithBaseURL("https://example.com/"), WithHTTPClient(customHTTPClient))
+	concrete, ok = client.(*openOcean)
+	require.True(t, ok)
+	assert.Equal(t, "https://example.com", concrete.baseURL)
+	assert.Same(t, customHTTPClient, concrete.client.Client)
 }
 
 func TestGetSwap(t *testing.T) {
@@ -102,6 +115,32 @@ func TestGetSwap(t *testing.T) {
 		assert.Equal(t, amountIn.String(), swap.TransactionValue.String())
 		assert.Equal(t, common.FromHex("0x90411a32abcdef"), swap.TxData)
 		assert.Equal(t, common.HexToAddress(testRouterAddress), swap.RouterAddress)
+	})
+
+	t.Run("custom http client sends api key", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			assert.Equal(t, "custom-key", r.Header.Get(apiKeyHeader))
+			writeJSON(t, w, swapResponseFixture{
+				Code: 200,
+				Data: &swapDataFixture{
+					InAmount:     "1",
+					OutAmount:    "2",
+					MinOutAmount: "1",
+					To:           testRouterAddress,
+					Value:        "0",
+					Data:         "0x01",
+					ChainID:      constants.FlareChainID,
+				},
+			})
+		}))
+		defer server.Close()
+
+		client, ok := mustNew(t, "custom-key", WithBaseURL(server.URL), WithHTTPClient(server.Client())).(*openOcean)
+		require.True(t, ok)
+
+		swap, err := client.GetSwap(context.Background(), SwapRequest{ChainID: constants.FlareChainID})
+		require.NoError(t, err)
+		assert.Equal(t, "2", swap.AmountOut.String())
 	})
 
 	t.Run("http error", func(t *testing.T) {

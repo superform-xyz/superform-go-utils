@@ -33,26 +33,47 @@ type openOcean struct {
 
 var _ Client = (*openOcean)(nil)
 
-// New creates a new OpenOcean API client.
-func New(apiKey string, baseURLs ...string) Client {
-	clientBuilder := http_client.NewClientBuilder().SetRetry(0, 10*time.Second)
-	if apiKey != "" {
-		clientBuilder = clientBuilder.SetAuth(apiKeyHeader, apiKey)
-	}
+type Option func(*openOcean)
 
-	baseURL := openOceanBaseURL
-	if len(baseURLs) > 0 {
-		candidate := strings.TrimRight(strings.TrimSpace(baseURLs[0]), "/")
-		if candidate != "" {
-			baseURL = candidate
+func WithBaseURL(baseURL string) Option {
+	return func(o *openOcean) {
+		baseURL = strings.TrimRight(strings.TrimSpace(baseURL), "/")
+		if baseURL != "" {
+			o.baseURL = baseURL
 		}
 	}
+}
 
-	return &openOcean{
-		apiKey:  apiKey,
-		baseURL: baseURL,
-		client:  clientBuilder.BuildClient(),
+func WithHTTPClient(client *http.Client) Option {
+	return func(o *openOcean) {
+		if client != nil {
+			o.client = &http_client.Client{Client: client}
+		}
 	}
+}
+
+// New creates a new OpenOcean API client.
+func New(apiKey string, opts ...Option) (Client, error) {
+	apiKey = strings.TrimSpace(apiKey)
+	if apiKey == "" {
+		return nil, fmt.Errorf("openocean: apiKey is required")
+	}
+	o := &openOcean{
+		apiKey:  apiKey,
+		baseURL: openOceanBaseURL,
+	}
+	for _, opt := range opts {
+		if opt != nil {
+			opt(o)
+		}
+	}
+	if o.client == nil {
+		builder := http_client.NewClientBuilder().SetRetry(0, 10*time.Second)
+		builder = builder.SetAuth(apiKeyHeader, o.apiKey)
+		o.client = builder.BuildClient()
+	}
+
+	return o, nil
 }
 
 // GetSwap fetches executable swap transaction data from OpenOcean.
@@ -74,6 +95,9 @@ func (o *openOcean) GetSwap(ctx context.Context, req SwapRequest) (*Swap, error)
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodGet, swapURL, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create OpenOcean swap request: %w", err)
+	}
+	if o.apiKey != "" {
+		httpReq.Header.Set(apiKeyHeader, o.apiKey)
 	}
 
 	resp, err := o.client.Do(httpReq)

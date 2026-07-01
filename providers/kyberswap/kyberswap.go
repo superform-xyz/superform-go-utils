@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"strings"
 	"time"
 
 	"github.com/superform-xyz/superform-go-utils/pkg/http_client"
@@ -15,6 +16,7 @@ import (
 
 const (
 	kyberswapBaseURL = "https://aggregator-api.kyberswap.com"
+	clientIDHeader   = "x-client-id"
 )
 
 // Client represents the behavior of the KyberSwap Aggregator API.
@@ -33,16 +35,46 @@ type kyberswap struct {
 
 var _ Client = (*kyberswap)(nil)
 
-// New creates a new KyberSwap Aggregator API client.
-func New(clientID string) Client {
-	return &kyberswap{
-		clientID: clientID,
-		baseURL:  kyberswapBaseURL,
-		client: http_client.NewClientBuilder().
-			SetAuth("x-client-id", clientID).
-			SetRetry(0, 10*time.Second).
-			BuildClient(),
+type Option func(*kyberswap)
+
+func WithBaseURL(baseURL string) Option {
+	return func(k *kyberswap) {
+		baseURL = strings.TrimRight(strings.TrimSpace(baseURL), "/")
+		if baseURL != "" {
+			k.baseURL = baseURL
+		}
 	}
+}
+
+func WithHTTPClient(client *http.Client) Option {
+	return func(k *kyberswap) {
+		if client != nil {
+			k.client = &http_client.Client{Client: client}
+		}
+	}
+}
+
+// New creates a new KyberSwap Aggregator API client. clientID is sent as the
+// x-client-id header; pass "" for unattributed requests.
+func New(clientID string, opts ...Option) (Client, error) {
+	k := &kyberswap{
+		clientID: strings.TrimSpace(clientID),
+		baseURL:  kyberswapBaseURL,
+	}
+	for _, opt := range opts {
+		if opt != nil {
+			opt(k)
+		}
+	}
+	if k.client == nil {
+		builder := http_client.NewClientBuilder().SetRetry(0, 10*time.Second)
+		if k.clientID != "" {
+			builder = builder.SetAuth(clientIDHeader, k.clientID)
+		}
+		k.client = builder.BuildClient()
+	}
+
+	return k, nil
 }
 
 // GetRoute fetches a route summary from KyberSwap.
@@ -140,6 +172,9 @@ func (k *kyberswap) doJSON(ctx context.Context, method, path string, requestBody
 	}
 	if requestBody != nil {
 		req.Header.Set("Content-Type", http_client.ContentTypeJSON)
+	}
+	if k.clientID != "" {
+		req.Header.Set(clientIDHeader, k.clientID)
 	}
 
 	resp, err := k.client.Do(req)

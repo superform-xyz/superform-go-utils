@@ -14,11 +14,18 @@ import (
 	"github.com/superform-xyz/superform-go-utils/utils/constants"
 )
 
+func mustNew(t *testing.T, apiKey string, opts ...Option) Zerion {
+	t.Helper()
+	c, err := New(apiKey, opts...)
+	require.NoError(t, err)
+	return c
+}
+
 func newTestClient(t *testing.T, handler http.HandlerFunc) *zerion {
 	t.Helper()
 	server := httptest.NewServer(handler)
 	t.Cleanup(server.Close)
-	client, ok := New("test-key", WithBaseURL(server.URL), WithRetry(0, time.Millisecond)).(*zerion)
+	client, ok := mustNew(t, "test-key", WithBaseURL(server.URL), WithRetry(0, time.Millisecond)).(*zerion)
 	require.True(t, ok)
 	return client
 }
@@ -30,8 +37,13 @@ func jsonOK(t *testing.T, w http.ResponseWriter, v any) {
 	require.NoError(t, json.NewEncoder(w).Encode(v))
 }
 
+func TestNew_MissingAPIKey(t *testing.T) {
+	_, err := New("")
+	require.Error(t, err)
+}
+
 func TestNew(t *testing.T) {
-	z := New("my-key", WithBaseURL("https://example.com/v1/"), WithTimeout(15*time.Second), WithRetry(2, time.Second))
+	z := mustNew(t, "my-key", WithBaseURL("https://example.com/v1/"), WithTimeout(15*time.Second), WithRetry(2, time.Second))
 	require.NotNil(t, z)
 
 	concrete, ok := z.(*zerion)

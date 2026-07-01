@@ -64,7 +64,7 @@ func WithRetry(maxRetries uint, retryDelay time.Duration) Option {
 }
 
 // New creates a new Odos API client.
-func New(opts ...Option) Client {
+func New(opts ...Option) (Client, error) {
 	o := &odos{
 		baseURL: odosBaseURL,
 	}
@@ -83,7 +83,7 @@ func New(opts ...Option) Client {
 		}
 		o.client = builder.BuildClient()
 	}
-	return o
+	return o, nil
 }
 
 // GetQuote fetches an Odos route quote.

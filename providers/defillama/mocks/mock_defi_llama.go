@@ -3,9 +3,13 @@
 package mocks
 
 import (
+	context "context"
+
 	common "github.com/ethereum/go-ethereum/common"
-	mock "github.com/stretchr/testify/mock"
+
 	defillama "github.com/superform-xyz/superform-go-utils/providers/defillama"
+
+	mock "github.com/stretchr/testify/mock"
 
 	time "time"
 )
@@ -68,9 +72,9 @@ func (_c *MockDefiLlama_Close_Call) RunAndReturn(run func() error) *MockDefiLlam
 	return _c
 }
 
-// GetCoin provides a mock function with given fields: chainId, tokenAddress
-func (_m *MockDefiLlama) GetCoin(chainId uint64, tokenAddress common.Address) (*defillama.Coin, error) {
-	ret := _m.Called(chainId, tokenAddress)
+// GetCoin provides a mock function with given fields: ctx, chainId, tokenAddress
+func (_m *MockDefiLlama) GetCoin(ctx context.Context, chainId uint64, tokenAddress common.Address) (*defillama.Coin, error) {
+	ret := _m.Called(ctx, chainId, tokenAddress)
 
 	if len(ret) == 0 {
 		panic("no return value specified for GetCoin")
@@ -78,19 +82,19 @@ func (_m *MockDefiLlama) GetCoin(chainId uint64, tokenAddress common.Address) (*
 
 	var r0 *defillama.Coin
 	var r1 error
-	if rf, ok := ret.Get(0).(func(uint64, common.Address) (*defillama.Coin, error)); ok {
-		return rf(chainId, tokenAddress)
+	if rf, ok := ret.Get(0).(func(context.Context, uint64, common.Address) (*defillama.Coin, error)); ok {
+		return rf(ctx, chainId, tokenAddress)
 	}
-	if rf, ok := ret.Get(0).(func(uint64, common.Address) *defillama.Coin); ok {
-		r0 = rf(chainId, tokenAddress)
+	if rf, ok := ret.Get(0).(func(context.Context, uint64, common.Address) *defillama.Coin); ok {
+		r0 = rf(ctx, chainId, tokenAddress)
 	} else {
 		if ret.Get(0) != nil {
 			r0 = ret.Get(0).(*defillama.Coin)
 		}
 	}
 
-	if rf, ok := ret.Get(1).(func(uint64, common.Address) error); ok {
-		r1 = rf(chainId, tokenAddress)
+	if rf, ok := ret.Get(1).(func(context.Context, uint64, common.Address) error); ok {
+		r1 = rf(ctx, chainId, tokenAddress)
 	} else {
 		r1 = ret.Error(1)
 	}
@@ -104,15 +108,16 @@ type MockDefiLlama_GetCoin_Call struct {
 }
 
 // GetCoin is a helper method to define mock.On call
+//   - ctx context.Context
 //   - chainId uint64
 //   - tokenAddress common.Address
-func (_e *MockDefiLlama_Expecter) GetCoin(chainId interface{}, tokenAddress interface{}) *MockDefiLlama_GetCoin_Call {
-	return &MockDefiLlama_GetCoin_Call{Call: _e.mock.On("GetCoin", chainId, tokenAddress)}
+func (_e *MockDefiLlama_Expecter) GetCoin(ctx interface{}, chainId interface{}, tokenAddress interface{}) *MockDefiLlama_GetCoin_Call {
+	return &MockDefiLlama_GetCoin_Call{Call: _e.mock.On("GetCoin", ctx, chainId, tokenAddress)}
 }
 
-func (_c *MockDefiLlama_GetCoin_Call) Run(run func(chainId uint64, tokenAddress common.Address)) *MockDefiLlama_GetCoin_Call {
+func (_c *MockDefiLlama_GetCoin_Call) Run(run func(ctx context.Context, chainId uint64, tokenAddress common.Address)) *MockDefiLlama_GetCoin_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(uint64), args[1].(common.Address))
+		run(args[0].(context.Context), args[1].(uint64), args[2].(common.Address))
 	})
 	return _c
 }
@@ -122,14 +127,14 @@ func (_c *MockDefiLlama_GetCoin_Call) Return(_a0 *defillama.Coin, _a1 error) *Mo
 	return _c
 }
 
-func (_c *MockDefiLlama_GetCoin_Call) RunAndReturn(run func(uint64, common.Address) (*defillama.Coin, error)) *MockDefiLlama_GetCoin_Call {
+func (_c *MockDefiLlama_GetCoin_Call) RunAndReturn(run func(context.Context, uint64, common.Address) (*defillama.Coin, error)) *MockDefiLlama_GetCoin_Call {
 	_c.Call.Return(run)
 	return _c
 }
 
-// GetHistoricalCoin provides a mock function with given fields: chainId, tokenAddress, timestamp
-func (_m *MockDefiLlama) GetHistoricalCoin(chainId uint64, tokenAddress common.Address, timestamp time.Time) (*defillama.Coin, error) {
-	ret := _m.Called(chainId, tokenAddress, timestamp)
+// GetHistoricalCoin provides a mock function with given fields: ctx, chainId, tokenAddress, timestamp
+func (_m *MockDefiLlama) GetHistoricalCoin(ctx context.Context, chainId uint64, tokenAddress common.Address, timestamp time.Time) (*defillama.Coin, error) {
+	ret := _m.Called(ctx, chainId, tokenAddress, timestamp)
 
 	if len(ret) == 0 {
 		panic("no return value specified for GetHistoricalCoin")
@@ -137,19 +142,19 @@ func (_m *MockDefiLlama) GetHistoricalCoin(chainId uint64, tokenAddress common.A
 
 	var r0 *defillama.Coin
 	var r1 error
-	if rf, ok := ret.Get(0).(func(uint64, common.Address, time.Time) (*defillama.Coin, error)); ok {
-		return rf(chainId, tokenAddress, timestamp)
+	if rf, ok := ret.Get(0).(func(context.Context, uint64, common.Address, time.Time) (*defillama.Coin, error)); ok {
+		return rf(ctx, chainId, tokenAddress, timestamp)
 	}
-	if rf, ok := ret.Get(0).(func(uint64, common.Address, time.Time) *defillama.Coin); ok {
-		r0 = rf(chainId, tokenAddress, timestamp)
+	if rf, ok := ret.Get(0).(func(context.Context, uint64, common.Address, time.Time) *defillama.Coin); ok {
+		r0 = rf(ctx, chainId, tokenAddress, timestamp)
 	} else {
 		if ret.Get(0) != nil {
 			r0 = ret.Get(0).(*defillama.Coin)
 		}
 	}
 
-	if rf, ok := ret.Get(1).(func(uint64, common.Address, time.Time) error); ok {
-		r1 = rf(chainId, tokenAddress, timestamp)
+	if rf, ok := ret.Get(1).(func(context.Context, uint64, common.Address, time.Time) error); ok {
+		r1 = rf(ctx, chainId, tokenAddress, timestamp)
 	} else {
 		r1 = ret.Error(1)
 	}
@@ -163,16 +168,17 @@ type MockDefiLlama_GetHistoricalCoin_Call struct {
 }
 
 // GetHistoricalCoin is a helper method to define mock.On call
+//   - ctx context.Context
 //   - chainId uint64
 //   - tokenAddress common.Address
 //   - timestamp time.Time
-func (_e *MockDefiLlama_Expecter) GetHistoricalCoin(chainId interface{}, tokenAddress interface{}, timestamp interface{}) *MockDefiLlama_GetHistoricalCoin_Call {
-	return &MockDefiLlama_GetHistoricalCoin_Call{Call: _e.mock.On("GetHistoricalCoin", chainId, tokenAddress, timestamp)}
+func (_e *MockDefiLlama_Expecter) GetHistoricalCoin(ctx interface{}, chainId interface{}, tokenAddress interface{}, timestamp interface{}) *MockDefiLlama_GetHistoricalCoin_Call {
+	return &MockDefiLlama_GetHistoricalCoin_Call{Call: _e.mock.On("GetHistoricalCoin", ctx, chainId, tokenAddress, timestamp)}
 }
 
-func (_c *MockDefiLlama_GetHistoricalCoin_Call) Run(run func(chainId uint64, tokenAddress common.Address, timestamp time.Time)) *MockDefiLlama_GetHistoricalCoin_Call {
+func (_c *MockDefiLlama_GetHistoricalCoin_Call) Run(run func(ctx context.Context, chainId uint64, tokenAddress common.Address, timestamp time.Time)) *MockDefiLlama_GetHistoricalCoin_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(uint64), args[1].(common.Address), args[2].(time.Time))
+		run(args[0].(context.Context), args[1].(uint64), args[2].(common.Address), args[3].(time.Time))
 	})
 	return _c
 }
@@ -182,14 +188,14 @@ func (_c *MockDefiLlama_GetHistoricalCoin_Call) Return(_a0 *defillama.Coin, _a1 
 	return _c
 }
 
-func (_c *MockDefiLlama_GetHistoricalCoin_Call) RunAndReturn(run func(uint64, common.Address, time.Time) (*defillama.Coin, error)) *MockDefiLlama_GetHistoricalCoin_Call {
+func (_c *MockDefiLlama_GetHistoricalCoin_Call) RunAndReturn(run func(context.Context, uint64, common.Address, time.Time) (*defillama.Coin, error)) *MockDefiLlama_GetHistoricalCoin_Call {
 	_c.Call.Return(run)
 	return _c
 }
 
-// GetMultipleCoins provides a mock function with given fields: tokens
-func (_m *MockDefiLlama) GetMultipleCoins(tokens []defillama.QueryTokenPrice) ([]*defillama.Coin, error) {
-	ret := _m.Called(tokens)
+// GetMultipleCoins provides a mock function with given fields: ctx, tokens
+func (_m *MockDefiLlama) GetMultipleCoins(ctx context.Context, tokens []defillama.QueryTokenPrice) ([]*defillama.Coin, error) {
+	ret := _m.Called(ctx, tokens)
 
 	if len(ret) == 0 {
 		panic("no return value specified for GetMultipleCoins")
@@ -197,19 +203,19 @@ func (_m *MockDefiLlama) GetMultipleCoins(tokens []defillama.QueryTokenPrice) ([
 
 	var r0 []*defillama.Coin
 	var r1 error
-	if rf, ok := ret.Get(0).(func([]defillama.QueryTokenPrice) ([]*defillama.Coin, error)); ok {
-		return rf(tokens)
+	if rf, ok := ret.Get(0).(func(context.Context, []defillama.QueryTokenPrice) ([]*defillama.Coin, error)); ok {
+		return rf(ctx, tokens)
 	}
-	if rf, ok := ret.Get(0).(func([]defillama.QueryTokenPrice) []*defillama.Coin); ok {
-		r0 = rf(tokens)
+	if rf, ok := ret.Get(0).(func(context.Context, []defillama.QueryTokenPrice) []*defillama.Coin); ok {
+		r0 = rf(ctx, tokens)
 	} else {
 		if ret.Get(0) != nil {
 			r0 = ret.Get(0).([]*defillama.Coin)
 		}
 	}
 
-	if rf, ok := ret.Get(1).(func([]defillama.QueryTokenPrice) error); ok {
-		r1 = rf(tokens)
+	if rf, ok := ret.Get(1).(func(context.Context, []defillama.QueryTokenPrice) error); ok {
+		r1 = rf(ctx, tokens)
 	} else {
 		r1 = ret.Error(1)
 	}
@@ -223,14 +229,15 @@ type MockDefiLlama_GetMultipleCoins_Call struct {
 }
 
 // GetMultipleCoins is a helper method to define mock.On call
+//   - ctx context.Context
 //   - tokens []defillama.QueryTokenPrice
-func (_e *MockDefiLlama_Expecter) GetMultipleCoins(tokens interface{}) *MockDefiLlama_GetMultipleCoins_Call {
-	return &MockDefiLlama_GetMultipleCoins_Call{Call: _e.mock.On("GetMultipleCoins", tokens)}
+func (_e *MockDefiLlama_Expecter) GetMultipleCoins(ctx interface{}, tokens interface{}) *MockDefiLlama_GetMultipleCoins_Call {
+	return &MockDefiLlama_GetMultipleCoins_Call{Call: _e.mock.On("GetMultipleCoins", ctx, tokens)}
 }
 
-func (_c *MockDefiLlama_GetMultipleCoins_Call) Run(run func(tokens []defillama.QueryTokenPrice)) *MockDefiLlama_GetMultipleCoins_Call {
+func (_c *MockDefiLlama_GetMultipleCoins_Call) Run(run func(ctx context.Context, tokens []defillama.QueryTokenPrice)) *MockDefiLlama_GetMultipleCoins_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].([]defillama.QueryTokenPrice))
+		run(args[0].(context.Context), args[1].([]defillama.QueryTokenPrice))
 	})
 	return _c
 }
@@ -240,22 +247,22 @@ func (_c *MockDefiLlama_GetMultipleCoins_Call) Return(_a0 []*defillama.Coin, _a1
 	return _c
 }
 
-func (_c *MockDefiLlama_GetMultipleCoins_Call) RunAndReturn(run func([]defillama.QueryTokenPrice) ([]*defillama.Coin, error)) *MockDefiLlama_GetMultipleCoins_Call {
+func (_c *MockDefiLlama_GetMultipleCoins_Call) RunAndReturn(run func(context.Context, []defillama.QueryTokenPrice) ([]*defillama.Coin, error)) *MockDefiLlama_GetMultipleCoins_Call {
 	_c.Call.Return(run)
 	return _c
 }
 
-// HealthCheck provides a mock function with no fields
-func (_m *MockDefiLlama) HealthCheck() error {
-	ret := _m.Called()
+// HealthCheck provides a mock function with given fields: ctx
+func (_m *MockDefiLlama) HealthCheck(ctx context.Context) error {
+	ret := _m.Called(ctx)
 
 	if len(ret) == 0 {
 		panic("no return value specified for HealthCheck")
 	}
 
 	var r0 error
-	if rf, ok := ret.Get(0).(func() error); ok {
-		r0 = rf()
+	if rf, ok := ret.Get(0).(func(context.Context) error); ok {
+		r0 = rf(ctx)
 	} else {
 		r0 = ret.Error(0)
 	}
@@ -269,13 +276,14 @@ type MockDefiLlama_HealthCheck_Call struct {
 }
 
 // HealthCheck is a helper method to define mock.On call
-func (_e *MockDefiLlama_Expecter) HealthCheck() *MockDefiLlama_HealthCheck_Call {
-	return &MockDefiLlama_HealthCheck_Call{Call: _e.mock.On("HealthCheck")}
+//   - ctx context.Context
+func (_e *MockDefiLlama_Expecter) HealthCheck(ctx interface{}) *MockDefiLlama_HealthCheck_Call {
+	return &MockDefiLlama_HealthCheck_Call{Call: _e.mock.On("HealthCheck", ctx)}
 }
 
-func (_c *MockDefiLlama_HealthCheck_Call) Run(run func()) *MockDefiLlama_HealthCheck_Call {
+func (_c *MockDefiLlama_HealthCheck_Call) Run(run func(ctx context.Context)) *MockDefiLlama_HealthCheck_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run()
+		run(args[0].(context.Context))
 	})
 	return _c
 }
@@ -285,7 +293,7 @@ func (_c *MockDefiLlama_HealthCheck_Call) Return(_a0 error) *MockDefiLlama_Healt
 	return _c
 }
 
-func (_c *MockDefiLlama_HealthCheck_Call) RunAndReturn(run func() error) *MockDefiLlama_HealthCheck_Call {
+func (_c *MockDefiLlama_HealthCheck_Call) RunAndReturn(run func(context.Context) error) *MockDefiLlama_HealthCheck_Call {
 	_c.Call.Return(run)
 	return _c
 }

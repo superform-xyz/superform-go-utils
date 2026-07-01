@@ -1,6 +1,7 @@
 package defillama
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -11,20 +12,24 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/superform-xyz/superform-go-utils/pkg/http_client"
 	"github.com/superform-xyz/superform-go-utils/utils/constants"
 )
 
 // newTestClient creates an httptest server and returns a defiLlama client wired to it.
+func mustNew(t *testing.T, opts ...Option) DefiLlama {
+	t.Helper()
+	c, err := New(opts...)
+	require.NoError(t, err)
+	return c
+}
+
 func newTestClient(t *testing.T, handler http.HandlerFunc) *defiLlama {
 	t.Helper()
 	server := httptest.NewServer(handler)
 	t.Cleanup(server.Close)
-	return &defiLlama{coinsBaseUrl: server.URL, client: newTestHTTPClient()}
-}
-
-func newTestHTTPClient() *http_client.Client {
-	return http_client.NewClientBuilder().SetRetry(0, time.Millisecond).BuildClient()
+	client, ok := mustNew(t, WithBaseURL(server.URL), WithHTTPClient(server.Client())).(*defiLlama)
+	require.True(t, ok)
+	return client
 }
 
 func jsonOK(t *testing.T, w http.ResponseWriter, v any) {
@@ -43,13 +48,25 @@ var (
 // ── New ─────────────────────────────────────────────────────────────────
 
 func TestNew(t *testing.T) {
-	dl := New()
+	dl := mustNew(t)
 	require.NotNil(t, dl)
 
 	concrete, ok := dl.(*defiLlama)
 	require.True(t, ok)
 	assert.Equal(t, coinsBaseUrl, concrete.coinsBaseUrl)
 	assert.NotNil(t, concrete.client)
+
+	customHTTPClient := &http.Client{Timeout: time.Second}
+	dl = mustNew(t,
+		WithBaseURL("https://example.com/"),
+		WithHTTPClient(customHTTPClient),
+		WithChainMap(map[uint64]string{777: "custom-chain"}),
+	)
+	concrete, ok = dl.(*defiLlama)
+	require.True(t, ok)
+	assert.Equal(t, "https://example.com", concrete.coinsBaseUrl)
+	assert.Same(t, customHTTPClient, concrete.client.Client)
+	assert.Equal(t, map[uint64]string{777: "custom-chain"}, concrete.chainToName)
 }
 
 // ── HealthCheck ─────────────────────────────────────────────────────────
@@ -61,15 +78,17 @@ func TestHealthCheck(t *testing.T) {
 				Coins: map[string]Coin{"ethereum:0xa0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48": {Price: 1.0}},
 			})
 		})
-		assert.NoError(t, dl.HealthCheck())
+		assert.NoError(t, dl.HealthCheck(context.Background()))
 	})
 
 	t.Run("http error", func(t *testing.T) {
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
 		server.Close()
-		dl := &defiLlama{coinsBaseUrl: server.URL, client: newTestHTTPClient()}
+		dlIface := mustNew(t, WithBaseURL(server.URL), WithHTTPClient(server.Client()))
+		dl, ok := dlIface.(*defiLlama)
+		require.True(t, ok)
 
-		assert.Error(t, dl.HealthCheck())
+		assert.Error(t, dl.HealthCheck(context.Background()))
 	})
 
 	t.Run("invalid json", func(t *testing.T) {
@@ -77,7 +96,7 @@ func TestHealthCheck(t *testing.T) {
 			w.WriteHeader(http.StatusOK)
 			_, _ = w.Write([]byte("not json"))
 		})
-		assert.Error(t, dl.HealthCheck())
+		assert.Error(t, dl.HealthCheck(context.Background()))
 	})
 }
 
@@ -94,7 +113,7 @@ func TestGetCoin(t *testing.T) {
 			})
 		})
 
-		coin, err := dl.GetCoin(constants.MainnetChainID, usdcAddr)
+		coin, err := dl.GetCoin(context.Background(), constants.MainnetChainID, usdcAddr)
 		require.NoError(t, err)
 		require.NotNil(t, coin)
 		assert.Equal(t, 1.0, coin.Price)
@@ -115,7 +134,7 @@ func TestGetCoin(t *testing.T) {
 			})
 		})
 
-		coin, err := dl.GetCoin(constants.MainnetChainID, nativeAddr)
+		coin, err := dl.GetCoin(context.Background(), constants.MainnetChainID, nativeAddr)
 		require.NoError(t, err)
 		require.NotNil(t, coin)
 		assert.Equal(t, 3500.0, coin.Price)
@@ -128,7 +147,7 @@ func TestGetCoin(t *testing.T) {
 			jsonOK(t, w, CoinsResponse{Coins: map[string]Coin{}})
 		})
 
-		coin, err := dl.GetCoin(constants.MainnetChainID, usdcAddr)
+		coin, err := dl.GetCoin(context.Background(), constants.MainnetChainID, usdcAddr)
 		assert.ErrorIs(t, err, ErrTokenNotFound)
 		assert.Nil(t, coin)
 	})
@@ -136,9 +155,11 @@ func TestGetCoin(t *testing.T) {
 	t.Run("http error", func(t *testing.T) {
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
 		server.Close()
-		dl := &defiLlama{coinsBaseUrl: server.URL, client: newTestHTTPClient()}
+		dlIface := mustNew(t, WithBaseURL(server.URL), WithHTTPClient(server.Client()))
+		dl, ok := dlIface.(*defiLlama)
+		require.True(t, ok)
 
-		coin, err := dl.GetCoin(constants.MainnetChainID, usdcAddr)
+		coin, err := dl.GetCoin(context.Background(), constants.MainnetChainID, usdcAddr)
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "failed to get prices")
 		assert.Nil(t, coin)
@@ -150,7 +171,7 @@ func TestGetCoin(t *testing.T) {
 			_, _ = w.Write([]byte("bad json"))
 		})
 
-		coin, err := dl.GetCoin(constants.MainnetChainID, usdcAddr)
+		coin, err := dl.GetCoin(context.Background(), constants.MainnetChainID, usdcAddr)
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "failed to decode prices")
 		assert.Nil(t, coin)
@@ -173,7 +194,7 @@ func TestGetHistoricalCoin(t *testing.T) {
 			})
 		})
 
-		coin, err := dl.GetHistoricalCoin(constants.MainnetChainID, usdcAddr, ts)
+		coin, err := dl.GetHistoricalCoin(context.Background(), constants.MainnetChainID, usdcAddr, ts)
 		require.NoError(t, err)
 		require.NotNil(t, coin)
 		assert.Equal(t, 0.9999, coin.Price)
@@ -191,7 +212,7 @@ func TestGetHistoricalCoin(t *testing.T) {
 			})
 		})
 
-		coin, err := dl.GetHistoricalCoin(constants.MainnetChainID, nativeAddr, ts)
+		coin, err := dl.GetHistoricalCoin(context.Background(), constants.MainnetChainID, nativeAddr, ts)
 		require.NoError(t, err)
 		require.NotNil(t, coin)
 		assert.Equal(t, nativeAddr, coin.Address)
@@ -202,7 +223,7 @@ func TestGetHistoricalCoin(t *testing.T) {
 			jsonOK(t, w, CoinsResponse{Coins: map[string]Coin{}})
 		})
 
-		coin, err := dl.GetHistoricalCoin(constants.MainnetChainID, usdcAddr, ts)
+		coin, err := dl.GetHistoricalCoin(context.Background(), constants.MainnetChainID, usdcAddr, ts)
 		assert.ErrorIs(t, err, ErrTokenNotFound)
 		assert.Nil(t, coin)
 	})
@@ -210,9 +231,11 @@ func TestGetHistoricalCoin(t *testing.T) {
 	t.Run("http error", func(t *testing.T) {
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
 		server.Close()
-		dl := &defiLlama{coinsBaseUrl: server.URL, client: newTestHTTPClient()}
+		dlIface := mustNew(t, WithBaseURL(server.URL), WithHTTPClient(server.Client()))
+		dl, ok := dlIface.(*defiLlama)
+		require.True(t, ok)
 
-		coin, err := dl.GetHistoricalCoin(constants.MainnetChainID, usdcAddr, ts)
+		coin, err := dl.GetHistoricalCoin(context.Background(), constants.MainnetChainID, usdcAddr, ts)
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "failed to get prices")
 		assert.Nil(t, coin)
@@ -224,7 +247,7 @@ func TestGetHistoricalCoin(t *testing.T) {
 			_, _ = w.Write([]byte("bad json"))
 		})
 
-		coin, err := dl.GetHistoricalCoin(constants.MainnetChainID, usdcAddr, ts)
+		coin, err := dl.GetHistoricalCoin(context.Background(), constants.MainnetChainID, usdcAddr, ts)
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "failed to decode prices")
 		assert.Nil(t, coin)
@@ -247,7 +270,7 @@ func TestGetMultipleCoins(t *testing.T) {
 			})
 		})
 
-		coins, err := dl.GetMultipleCoins([]QueryTokenPrice{
+		coins, err := dl.GetMultipleCoins(context.Background(), []QueryTokenPrice{
 			{ChainId: constants.MainnetChainID, TokenAddress: usdcAddr},
 			{ChainId: constants.MainnetChainID, TokenAddress: wethAddr},
 		})
@@ -273,7 +296,7 @@ func TestGetMultipleCoins(t *testing.T) {
 			})
 		})
 
-		coins, err := dl.GetMultipleCoins([]QueryTokenPrice{
+		coins, err := dl.GetMultipleCoins(context.Background(), []QueryTokenPrice{
 			{ChainId: constants.MainnetChainID, TokenAddress: nativeAddr},
 		})
 		require.NoError(t, err)
@@ -295,7 +318,7 @@ func TestGetMultipleCoins(t *testing.T) {
 			})
 		})
 
-		coins, err := dl.GetMultipleCoins([]QueryTokenPrice{
+		coins, err := dl.GetMultipleCoins(context.Background(), []QueryTokenPrice{
 			{ChainId: 999999, TokenAddress: usdcAddr},                   // unknown chain
 			{ChainId: constants.MainnetChainID, TokenAddress: wethAddr}, // known chain
 		})
@@ -315,7 +338,7 @@ func TestGetMultipleCoins(t *testing.T) {
 			})
 		})
 
-		coins, err := dl.GetMultipleCoins([]QueryTokenPrice{
+		coins, err := dl.GetMultipleCoins(context.Background(), []QueryTokenPrice{
 			{ChainId: constants.MainnetChainID, TokenAddress: usdcAddr},
 			{ChainId: constants.MainnetChainID, TokenAddress: wethAddr}, // not in response
 		})
@@ -327,9 +350,11 @@ func TestGetMultipleCoins(t *testing.T) {
 	t.Run("http error", func(t *testing.T) {
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
 		server.Close()
-		dl := &defiLlama{coinsBaseUrl: server.URL, client: newTestHTTPClient()}
+		dlIface := mustNew(t, WithBaseURL(server.URL), WithHTTPClient(server.Client()))
+		dl, ok := dlIface.(*defiLlama)
+		require.True(t, ok)
 
-		coins, err := dl.GetMultipleCoins([]QueryTokenPrice{
+		coins, err := dl.GetMultipleCoins(context.Background(), []QueryTokenPrice{
 			{ChainId: constants.MainnetChainID, TokenAddress: usdcAddr},
 		})
 		assert.Error(t, err)
@@ -343,7 +368,7 @@ func TestGetMultipleCoins(t *testing.T) {
 			_, _ = w.Write([]byte("bad json"))
 		})
 
-		coins, err := dl.GetMultipleCoins([]QueryTokenPrice{
+		coins, err := dl.GetMultipleCoins(context.Background(), []QueryTokenPrice{
 			{ChainId: constants.MainnetChainID, TokenAddress: usdcAddr},
 		})
 		assert.Error(t, err)
@@ -359,14 +384,14 @@ func TestDefiLlama_Integration(t *testing.T) {
 		t.Skip("skipping integration test in short mode")
 	}
 
-	dl := New()
+	dl := mustNew(t)
 
 	t.Run("health check", func(t *testing.T) {
-		require.NoError(t, dl.HealthCheck())
+		require.NoError(t, dl.HealthCheck(context.Background()))
 	})
 
 	t.Run("get coin", func(t *testing.T) {
-		coin, err := dl.GetCoin(constants.MainnetChainID, usdcAddr)
+		coin, err := dl.GetCoin(context.Background(), constants.MainnetChainID, usdcAddr)
 		require.NoError(t, err)
 		require.NotNil(t, coin)
 		assert.Equal(t, constants.MainnetChainID, coin.ChainId)
@@ -376,7 +401,7 @@ func TestDefiLlama_Integration(t *testing.T) {
 	})
 
 	t.Run("get coin native token", func(t *testing.T) {
-		coin, err := dl.GetCoin(constants.MainnetChainID, nativeAddr)
+		coin, err := dl.GetCoin(context.Background(), constants.MainnetChainID, nativeAddr)
 		require.NoError(t, err)
 		require.NotNil(t, coin)
 		assert.Equal(t, nativeAddr, coin.Address)
@@ -385,7 +410,7 @@ func TestDefiLlama_Integration(t *testing.T) {
 
 	t.Run("get historical coin", func(t *testing.T) {
 		ts := time.Now().Add(-time.Hour).UTC()
-		coin, err := dl.GetHistoricalCoin(constants.MainnetChainID, usdcAddr, ts)
+		coin, err := dl.GetHistoricalCoin(context.Background(), constants.MainnetChainID, usdcAddr, ts)
 		require.NoError(t, err)
 		require.NotNil(t, coin)
 		assert.Equal(t, constants.MainnetChainID, coin.ChainId)
@@ -395,7 +420,7 @@ func TestDefiLlama_Integration(t *testing.T) {
 
 	t.Run("get multiple coins", func(t *testing.T) {
 		wethAddr := common.HexToAddress("0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2")
-		coins, err := dl.GetMultipleCoins([]QueryTokenPrice{
+		coins, err := dl.GetMultipleCoins(context.Background(), []QueryTokenPrice{
 			{ChainId: constants.MainnetChainID, TokenAddress: usdcAddr},
 			{ChainId: constants.MainnetChainID, TokenAddress: wethAddr},
 			{ChainId: constants.MainnetChainID, TokenAddress: nativeAddr},
@@ -410,7 +435,7 @@ func TestDefiLlama_Integration(t *testing.T) {
 	})
 
 	t.Run("get coin not found", func(t *testing.T) {
-		coin, err := dl.GetCoin(constants.MainnetChainID, common.HexToAddress("0x1111111111111111111111111111111111111111"))
+		coin, err := dl.GetCoin(context.Background(), constants.MainnetChainID, common.HexToAddress("0x1111111111111111111111111111111111111111"))
 		assert.ErrorIs(t, err, ErrTokenNotFound)
 		assert.Nil(t, coin)
 	})

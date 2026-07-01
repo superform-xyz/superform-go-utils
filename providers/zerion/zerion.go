@@ -59,9 +59,13 @@ func WithRetry(maxRetries uint, retryDelay time.Duration) Option {
 	}
 }
 
-func New(apiKey string, opts ...Option) Zerion {
+func New(apiKey string, opts ...Option) (Zerion, error) {
+	apiKey = strings.TrimSpace(apiKey)
+	if apiKey == "" {
+		return nil, fmt.Errorf("zerion: apiKey is required")
+	}
 	z := &zerion{
-		apiKey:  strings.TrimSpace(apiKey),
+		apiKey:  apiKey,
 		baseURL: zerionBaseURL,
 	}
 	for _, opt := range opts {
@@ -71,9 +75,7 @@ func New(apiKey string, opts ...Option) Zerion {
 	}
 	if z.client == nil {
 		builder := http_client.NewClientBuilder().SetRetry(0, 0)
-		if z.apiKey != "" {
-			builder.SetAuth("Authorization", fmt.Sprintf("Basic %s", z.apiKey))
-		}
+		builder.SetAuth("Authorization", fmt.Sprintf("Basic %s", z.apiKey))
 		if z.timeout != nil {
 			builder.SetTimeout(*z.timeout)
 		}
@@ -82,7 +84,7 @@ func New(apiKey string, opts ...Option) Zerion {
 		}
 		z.client = builder.BuildClient()
 	}
-	return z
+	return z, nil
 }
 
 func (z *zerion) HealthCheck(ctx context.Context) error {

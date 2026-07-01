@@ -13,11 +13,17 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/superform-xyz/superform-go-utils/pkg/http_client"
 	"github.com/superform-xyz/superform-go-utils/utils/constants"
 )
 
 const testRouterAddress = "0x6131B5fae19EA4f9D964eAc0408E4408b66337b5"
+
+func mustNew(t *testing.T, clientID string, opts ...Option) Client {
+	t.Helper()
+	c, err := New(clientID, opts...)
+	require.NoError(t, err)
+	return c
+}
 
 func newTestClient(t *testing.T, handler http.HandlerFunc) *kyberswap {
 	t.Helper()
@@ -25,18 +31,13 @@ func newTestClient(t *testing.T, handler http.HandlerFunc) *kyberswap {
 	server := httptest.NewServer(handler)
 	t.Cleanup(server.Close)
 
-	return &kyberswap{
-		clientID: "superform",
-		baseURL:  server.URL,
-		client: http_client.NewClientBuilder().
-			SetAuth("x-client-id", "superform").
-			SetRetry(0, time.Millisecond).
-			BuildClient(),
-	}
+	client, ok := mustNew(t, "superform", WithBaseURL(server.URL)).(*kyberswap)
+	require.True(t, ok)
+	return client
 }
 
 func TestNew(t *testing.T) {
-	client := New("client-id")
+	client := mustNew(t, "client-id")
 
 	require.NotNil(t, client)
 
@@ -45,12 +46,19 @@ func TestNew(t *testing.T) {
 	assert.Equal(t, "client-id", concrete.clientID)
 	assert.Equal(t, kyberswapBaseURL, concrete.baseURL)
 	assert.NotNil(t, concrete.client)
+
+	customHTTPClient := &http.Client{Timeout: time.Second}
+	client = mustNew(t, "client-id", WithBaseURL("https://example.com/"), WithHTTPClient(customHTTPClient))
+	concrete, ok = client.(*kyberswap)
+	require.True(t, ok)
+	assert.Equal(t, "https://example.com", concrete.baseURL)
+	assert.Same(t, customHTTPClient, concrete.client.Client)
 }
 
 func TestGetRoute(t *testing.T) {
 	t.Run("success", func(t *testing.T) {
 		client := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
-			assert.Equal(t, "superform", r.Header.Get("x-client-id"))
+			assert.Equal(t, "superform", r.Header.Get(clientIDHeader))
 			assert.Equal(t, http.MethodGet, r.Method)
 			assert.Equal(t, "/ethereum/api/v1/routes", r.URL.Path)
 			assert.Equal(t, "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48", r.URL.Query().Get("tokenIn"))
@@ -74,6 +82,32 @@ func TestGetRoute(t *testing.T) {
 		})
 		require.NoError(t, err)
 		assert.JSONEq(t, `{"amountOut":"500000000000000000"}`, string(route.RouteSummary))
+		assert.Equal(t, testRouterAddress, route.RouterAddress)
+	})
+
+	t.Run("custom http client sends client id", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			assert.Equal(t, "custom-client", r.Header.Get(clientIDHeader))
+			writeJSON(t, w, routeResponse{
+				Code: 0,
+				Data: routeData{
+					RouteSummary:  json.RawMessage(`{"amountOut":"1"}`),
+					RouterAddress: testRouterAddress,
+				},
+			})
+		}))
+		defer server.Close()
+
+		client, ok := mustNew(t, "custom-client", WithBaseURL(server.URL), WithHTTPClient(server.Client())).(*kyberswap)
+		require.True(t, ok)
+
+		route, err := client.GetRoute(context.Background(), RouteRequest{
+			ChainID:  constants.MainnetChainID,
+			TokenIn:  "0x1",
+			TokenOut: "0x2",
+			AmountIn: "1",
+		})
+		require.NoError(t, err)
 		assert.Equal(t, testRouterAddress, route.RouterAddress)
 	})
 
@@ -168,7 +202,7 @@ func TestGetRoute(t *testing.T) {
 func TestBuildRoute(t *testing.T) {
 	t.Run("success", func(t *testing.T) {
 		client := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
-			assert.Equal(t, "superform", r.Header.Get("x-client-id"))
+			assert.Equal(t, "superform", r.Header.Get(clientIDHeader))
 			assert.Equal(t, http.MethodPost, r.Method)
 			assert.Equal(t, "/ethereum/api/v1/route/build", r.URL.Path)
 
@@ -336,7 +370,7 @@ func TestBuildUnmarshalJSON(t *testing.T) {
 }
 
 func TestSupportedChains(t *testing.T) {
-	client := New("client-id")
+	client := mustNew(t, "client-id")
 
 	assert.Contains(t, client.SupportedChains(), constants.MainnetChainID)
 	assert.Contains(t, client.SupportedChains(), constants.MantleChainID)
