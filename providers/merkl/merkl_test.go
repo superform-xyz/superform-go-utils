@@ -81,8 +81,7 @@ func TestGetOpportunities(t *testing.T) {
 	assert.Equal(t, "Native APR", opps[0].NativeAPRRecord.Title)
 	assert.Equal(t, "superUSDC", opps[0].Tokens[0].Symbol)
 	assert.Equal(t, "0x123", opps[0].RewardsRecord.Breakdowns[0].OnChainCampaignID)
-	require.NotNil(t, opps[0].RewardsRecord.Breakdowns[0].Token.Decimals)
-	assert.Equal(t, 18, *opps[0].RewardsRecord.Breakdowns[0].Token.Decimals)
+	assert.Equal(t, 18, opps[0].RewardsRecord.Breakdowns[0].Token.Decimals)
 	assert.Equal(t, 0.42, opps[0].RewardsRecord.Breakdowns[0].Token.Price)
 }
 
@@ -135,8 +134,7 @@ func TestListOpportunitiesBuildsQuery(t *testing.T) {
 
 	require.Len(t, opps[0].Campaigns, 1)
 	assert.Equal(t, "onchain-a", opps[0].Campaigns[0].OnChainCampaignID)
-	require.NotNil(t, opps[0].Campaigns[0].RewardToken.Decimals)
-	assert.Equal(t, 18, *opps[0].Campaigns[0].RewardToken.Decimals)
+	assert.Equal(t, 18, opps[0].Campaigns[0].RewardToken.Decimals)
 	assert.Equal(t, 0.42, opps[0].Campaigns[0].RewardToken.Price)
 	assert.Equal(t, int64(10), opps[0].EarliestCampaignStart)
 	assert.Equal(t, int64(20), opps[0].LatestCampaignEnd)

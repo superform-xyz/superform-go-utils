@@ -99,7 +99,7 @@ type Token struct {
 	Address  string  `json:"address"`
 	Symbol   string  `json:"symbol"`
 	Icon     string  `json:"icon"`
-	Decimals *int    `json:"decimals"`
+	Decimals int     `json:"decimals"`
 	Price    float64 `json:"price"`
 }
 
