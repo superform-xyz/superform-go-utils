@@ -1,5 +1,7 @@
 package merkl
 
+import "errors"
+
 // RootInfo captures Merkl root metadata for one chain.
 type RootInfo struct {
 	Live string `json:"live"`
@@ -101,6 +103,19 @@ type Token struct {
 	Icon     string  `json:"icon"`
 	Decimals int     `json:"decimals"`
 	Price    float64 `json:"price"`
+}
+
+// ErrMissingTokenDecimals indicates the Merkl API returned a reward token without
+// decimals, which are required to interpret reward amounts.
+var ErrMissingTokenDecimals = errors.New("merkl: missing reward token decimals")
+
+// RewardDecimals returns the token's decimals, or ErrMissingTokenDecimals when the
+// Merkl API omitted them (reported as 0).
+func (t Token) RewardDecimals() (int, error) {
+	if t.Decimals == 0 {
+		return 0, ErrMissingTokenDecimals
+	}
+	return t.Decimals, nil
 }
 
 // Campaign captures campaign-level details when /v4/opportunities is queried with campaigns=true.
