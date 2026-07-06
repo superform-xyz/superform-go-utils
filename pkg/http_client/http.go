@@ -56,6 +56,7 @@ type ClientBuilder interface {
 	SetAuth(key, value string) ClientBuilder
 	SetTimeout(timeout time.Duration) ClientBuilder
 	SetRetry(maxRetries uint, retryDelay time.Duration) ClientBuilder
+	SetTransportWrapper(wrapper func(http.RoundTripper) http.RoundTripper) ClientBuilder
 }
 
 // Client wraps http.Client with shared request helpers.
@@ -86,11 +87,12 @@ func ResponseStatus(err error) (statusCode int, body string, ok bool) {
 }
 
 type clientBuilder struct {
-	authKey    string
-	authValue  string
-	timeout    *time.Duration
-	maxRetries *uint
-	retryDelay *time.Duration
+	authKey       string
+	authValue     string
+	timeout       *time.Duration
+	maxRetries    *uint
+	retryDelay    *time.Duration
+	wrapTransport func(http.RoundTripper) http.RoundTripper
 }
 
 var _ ClientBuilder = (*clientBuilder)(nil)
@@ -165,6 +167,12 @@ func (b *clientBuilder) SetRetry(maxRetries uint, retryDelay time.Duration) Clie
 	return b
 }
 
+// SetTransportWrapper wraps the base transport used by the retry transport.
+func (b *clientBuilder) SetTransportWrapper(wrapper func(http.RoundTripper) http.RoundTripper) ClientBuilder {
+	b.wrapTransport = wrapper
+	return b
+}
+
 func (b *clientBuilder) BuildClient() *Client {
 	var (
 		clientRetryDelay = retryTimeout
@@ -184,21 +192,28 @@ func (b *clientBuilder) BuildClient() *Client {
 		clientTimeout = *b.timeout
 	}
 
+	baseTransport := http.RoundTripper(&http.Transport{
+		DialContext: (&net.Dialer{
+			Timeout:   dialContextTimeout,
+			KeepAlive: dialContextKeepAlive,
+		}).DialContext,
+		TLSHandshakeTimeout:   tlsHandshakeTimeout,
+		ExpectContinueTimeout: expectedContinueTimeout,
+		IdleConnTimeout:       idleConnTimeout,
+		MaxIdleConns:          maxIdleConns,
+		MaxIdleConnsPerHost:   maxIdleConnsPerHost,
+	})
+	if b.wrapTransport != nil {
+		if wrapped := b.wrapTransport(baseTransport); wrapped != nil {
+			baseTransport = wrapped
+		}
+	}
+
 	return &Client{
 		Client: &http.Client{
 			Timeout: clientTimeout,
 			Transport: &Transport{
-				BaseTransport: &http.Transport{
-					DialContext: (&net.Dialer{
-						Timeout:   dialContextTimeout,
-						KeepAlive: dialContextKeepAlive,
-					}).DialContext,
-					TLSHandshakeTimeout:   tlsHandshakeTimeout,
-					ExpectContinueTimeout: expectedContinueTimeout,
-					IdleConnTimeout:       idleConnTimeout,
-					MaxIdleConns:          maxIdleConns,
-					MaxIdleConnsPerHost:   maxIdleConnsPerHost,
-				},
+				BaseTransport: baseTransport,
 				MaxRetries:    clientMaxRetries,
 				RetryDelay:    clientRetryDelay,
 				AuthHeaderKey: b.authKey,

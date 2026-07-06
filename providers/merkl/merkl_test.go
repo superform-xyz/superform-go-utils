@@ -8,6 +8,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	utilshttp "github.com/superform-xyz/superform-go-utils/pkg/http_client"
 )
 
 func mustNew(t *testing.T, opts ...Option) Client {
@@ -83,6 +84,28 @@ func TestGetOpportunities(t *testing.T) {
 	assert.Equal(t, "0x123", opps[0].RewardsRecord.Breakdowns[0].OnChainCampaignID)
 	assert.Equal(t, 18, opps[0].RewardsRecord.Breakdowns[0].Token.Decimals)
 	assert.Equal(t, 0.42, opps[0].RewardsRecord.Breakdowns[0].Token.Price)
+}
+
+func TestNewAppliesTransportWrapperWithMerklDefaults(t *testing.T) {
+	t.Parallel()
+
+	wrapped := false
+	c := mustNew(t, WithTransportWrapper(func(base http.RoundTripper) http.RoundTripper {
+		require.NotNil(t, base)
+		wrapped = true
+		return base
+	}))
+
+	merklClient := c.(*client)
+	require.NotNil(t, merklClient.httpClient)
+	require.NotNil(t, merklClient.httpClient.Client)
+	require.True(t, wrapped)
+	assert.Equal(t, defaultTimeout, merklClient.httpClient.Timeout)
+
+	transport, ok := merklClient.httpClient.Transport.(*utilshttp.Transport)
+	require.True(t, ok)
+	assert.Equal(t, defaultMaxRetries+1, transport.MaxRetries)
+	assert.Equal(t, defaultRetryDelay, transport.RetryDelay)
 }
 
 func TestListOpportunitiesBuildsQuery(t *testing.T) {

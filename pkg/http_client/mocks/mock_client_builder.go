@@ -3,6 +3,8 @@
 package mocks
 
 import (
+	http "net/http"
+
 	mock "github.com/stretchr/testify/mock"
 	http_client "github.com/superform-xyz/superform-go-utils/pkg/http_client"
 
@@ -211,6 +213,54 @@ func (_c *MockClientBuilder_SetTimeout_Call) Return(_a0 http_client.ClientBuilde
 }
 
 func (_c *MockClientBuilder_SetTimeout_Call) RunAndReturn(run func(time.Duration) http_client.ClientBuilder) *MockClientBuilder_SetTimeout_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// SetTransportWrapper provides a mock function with given fields: wrapper
+func (_m *MockClientBuilder) SetTransportWrapper(wrapper func(http.RoundTripper) http.RoundTripper) http_client.ClientBuilder {
+	ret := _m.Called(wrapper)
+
+	if len(ret) == 0 {
+		panic("no return value specified for SetTransportWrapper")
+	}
+
+	var r0 http_client.ClientBuilder
+	if rf, ok := ret.Get(0).(func(func(http.RoundTripper) http.RoundTripper) http_client.ClientBuilder); ok {
+		r0 = rf(wrapper)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(http_client.ClientBuilder)
+		}
+	}
+
+	return r0
+}
+
+// MockClientBuilder_SetTransportWrapper_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'SetTransportWrapper'
+type MockClientBuilder_SetTransportWrapper_Call struct {
+	*mock.Call
+}
+
+// SetTransportWrapper is a helper method to define mock.On call
+//   - wrapper func(http.RoundTripper) http.RoundTripper
+func (_e *MockClientBuilder_Expecter) SetTransportWrapper(wrapper interface{}) *MockClientBuilder_SetTransportWrapper_Call {
+	return &MockClientBuilder_SetTransportWrapper_Call{Call: _e.mock.On("SetTransportWrapper", wrapper)}
+}
+
+func (_c *MockClientBuilder_SetTransportWrapper_Call) Run(run func(wrapper func(http.RoundTripper) http.RoundTripper)) *MockClientBuilder_SetTransportWrapper_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(func(http.RoundTripper) http.RoundTripper))
+	})
+	return _c
+}
+
+func (_c *MockClientBuilder_SetTransportWrapper_Call) Return(_a0 http_client.ClientBuilder) *MockClientBuilder_SetTransportWrapper_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *MockClientBuilder_SetTransportWrapper_Call) RunAndReturn(run func(func(http.RoundTripper) http.RoundTripper) http_client.ClientBuilder) *MockClientBuilder_SetTransportWrapper_Call {
 	_c.Call.Return(run)
 	return _c
 }

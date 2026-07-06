@@ -25,6 +25,7 @@ const (
 	opportunitiesCountPath = "/v4/opportunities/count"
 	userRewardsPath        = "/v4/users/%s/rewards"
 	defaultItemsLimit      = 100
+	defaultTimeout         = 30 * time.Second
 	defaultMaxRetries      = uint(4)
 	defaultRetryDelay      = 2 * time.Second
 	maxResponseBody        = 8 << 20
@@ -50,10 +51,11 @@ type Client interface {
 }
 
 type client struct {
-	baseURL    string
-	apiKey     string
-	httpClient *http_client.Client
-	limiter    *rate.Limiter
+	baseURL          string
+	apiKey           string
+	httpClient       *http_client.Client
+	limiter          *rate.Limiter
+	transportWrapper func(http.RoundTripper) http.RoundTripper
 }
 
 var _ Client = (*client)(nil)
@@ -77,6 +79,13 @@ func WithHTTPClient(httpClient *http.Client) Option {
 		if httpClient != nil {
 			c.httpClient = &http_client.Client{Client: httpClient}
 		}
+	}
+}
+
+// WithTransportWrapper wraps the Merkl client's default base transport.
+func WithTransportWrapper(wrapper func(http.RoundTripper) http.RoundTripper) Option {
+	return func(c *client) {
+		c.transportWrapper = wrapper
 	}
 }
 
@@ -113,9 +122,14 @@ func New(opts ...Option) (Client, error) {
 		}
 	}
 	if c.httpClient == nil {
-		builder := http_client.NewClientBuilder().SetRetry(defaultMaxRetries, defaultRetryDelay)
+		builder := http_client.NewClientBuilder().
+			SetTimeout(defaultTimeout).
+			SetRetry(defaultMaxRetries, defaultRetryDelay)
 		if c.apiKey != "" {
 			builder = builder.SetAuth(apiKeyHeader, c.apiKey)
+		}
+		if c.transportWrapper != nil {
+			builder = builder.SetTransportWrapper(c.transportWrapper)
 		}
 		c.httpClient = builder.BuildClient()
 	}
