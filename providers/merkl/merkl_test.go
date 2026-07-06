@@ -54,7 +54,7 @@ func TestGetOpportunities(t *testing.T) {
 				},
 				"tokens": [{"chainId": 8453, "address": "0xabc", "symbol": "superUSDC", "icon": "https://example.com/icon.png"}],
 				"rewardsRecord": {
-					"breakdowns": [{"token": {"chainId": 8453, "address": "0xdef", "symbol": "SUP"}, "value": 100}]
+					"breakdowns": [{"token": {"chainId": 8453, "address": "0xdef", "symbol": "SUP"}, "value": 100, "onChainCampaignId": "0x123"}]
 				}
 			}
 		]`))
@@ -72,6 +72,7 @@ func TestGetOpportunities(t *testing.T) {
 	assert.Equal(t, "9366490728830419848", opps[0].ID)
 	assert.Equal(t, "Native APR", opps[0].NativeAPRRecord.Title)
 	assert.Equal(t, "superUSDC", opps[0].Tokens[0].Symbol)
+	assert.Equal(t, "0x123", opps[0].RewardsRecord.Breakdowns[0].OnChainCampaignID)
 }
 
 func TestGetOpportunities_Paginates(t *testing.T) {

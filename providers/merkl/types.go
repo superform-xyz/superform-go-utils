@@ -52,8 +52,9 @@ type RewardsRecord struct {
 
 // RewardBreakdown captures an individual reward token.
 type RewardBreakdown struct {
-	Token Token   `json:"token"`
-	Value float64 `json:"value"`
+	Token             Token   `json:"token"`
+	Value             float64 `json:"value"`
+	OnChainCampaignID string  `json:"onChainCampaignId"`
 }
 
 // Token describes a reward token returned by the Merkl API.
