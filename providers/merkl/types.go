@@ -1,11 +1,6 @@
 package merkl
 
-import (
-	"encoding/json"
-	"errors"
-	"strconv"
-	"strings"
-)
+import "errors"
 
 // RootInfo captures Merkl root metadata for one chain.
 type RootInfo struct {
@@ -57,91 +52,8 @@ type Opportunity struct {
 	Tokens                []Token         `json:"tokens"`
 	RewardsRecord         RewardsRecord   `json:"rewardsRecord"`
 	Campaigns             []Campaign      `json:"campaigns"`
-	EarliestCampaignStart int64           `json:"earliestCampaignStart"`
-	LatestCampaignEnd     int64           `json:"latestCampaignEnd"`
-}
-
-func (o *Opportunity) UnmarshalJSON(data []byte) error {
-	var decoded opportunityPayload
-	if err := json.Unmarshal(data, &decoded); err != nil {
-		return err
-	}
-
-	*o = Opportunity{
-		ID:                    decoded.ID,
-		Name:                  decoded.Name,
-		Type:                  decoded.Type,
-		ChainID:               decoded.ChainID,
-		Identifier:            decoded.Identifier,
-		Status:                decoded.Status,
-		Action:                decoded.Action,
-		Apr:                   decoded.Apr,
-		AprRecord:             decoded.AprRecord,
-		NativeAPRRecord:       decoded.NativeAPRRecord,
-		TVL:                   decoded.TVL,
-		DailyRewards:          decoded.DailyRewards,
-		LiveCampaigns:         decoded.LiveCampaigns,
-		Tags:                  decoded.Tags,
-		ExplorerAddress:       decoded.ExplorerAddress,
-		Tokens:                decoded.Tokens,
-		RewardsRecord:         decoded.RewardsRecord,
-		Campaigns:             decoded.Campaigns,
-		EarliestCampaignStart: int64(decoded.EarliestCampaignStart),
-		LatestCampaignEnd:     int64(decoded.LatestCampaignEnd),
-	}
-
-	return nil
-}
-
-type opportunityPayload struct {
-	ID                    string          `json:"id"`
-	Name                  string          `json:"name"`
-	Type                  string          `json:"type"`
-	ChainID               int             `json:"chainId"`
-	Identifier            string          `json:"identifier"`
-	Status                string          `json:"status"`
-	Action                string          `json:"action"`
-	Apr                   float64         `json:"apr"`
-	AprRecord             APRRecord       `json:"aprRecord"`
-	NativeAPRRecord       NativeAPRRecord `json:"nativeAprRecord"`
-	TVL                   float64         `json:"tvl"`
-	DailyRewards          float64         `json:"dailyRewards"`
-	LiveCampaigns         int             `json:"liveCampaigns"`
-	Tags                  []string        `json:"tags"`
-	ExplorerAddress       string          `json:"explorerAddress"`
-	Tokens                []Token         `json:"tokens"`
-	RewardsRecord         RewardsRecord   `json:"rewardsRecord"`
-	Campaigns             []Campaign      `json:"campaigns"`
-	EarliestCampaignStart flexibleInt64   `json:"earliestCampaignStart"`
-	LatestCampaignEnd     flexibleInt64   `json:"latestCampaignEnd"`
-}
-
-type flexibleInt64 int64
-
-func (n *flexibleInt64) UnmarshalJSON(raw []byte) error {
-	value := strings.TrimSpace(string(raw))
-	if value == "" || value == "null" {
-		return nil
-	}
-
-	if strings.HasPrefix(value, `"`) {
-		var text string
-		if err := json.Unmarshal(raw, &text); err != nil {
-			return err
-		}
-		text = strings.TrimSpace(text)
-		if text == "" {
-			return nil
-		}
-		value = text
-	}
-
-	parsed, err := strconv.ParseInt(value, 10, 64)
-	if err != nil {
-		return err
-	}
-	*n = flexibleInt64(parsed)
-	return nil
+	EarliestCampaignStart string          `json:"earliestCampaignStart"`
+	LatestCampaignEnd     string          `json:"latestCampaignEnd"`
 }
 
 // APRRecord contains the Merkl APR calculation timestamp and breakdowns.
