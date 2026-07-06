@@ -8,6 +8,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	utilshttp "github.com/superform-xyz/superform-go-utils/pkg/http_client"
 )
 
 func mustNew(t *testing.T, opts ...Option) Client {
@@ -44,7 +45,7 @@ func TestGetOpportunities(t *testing.T) {
 				"aprRecord": {
 					"cumulated": 2.5,
 					"timestamp": "2026-06-16T00:00:00.000Z",
-					"breakdowns": [{"type": "CAMPAIGN", "value": 2.5}]
+					"breakdowns": [{"identifier": "campaign-a", "type": "CAMPAIGN", "distributionType": "FIX_REWARD_VALUE_PER_LIQUIDITY_VALUE", "value": 2.5}]
 				},
 				"nativeAprRecord": {
 					"title": "Native APR",
@@ -52,9 +53,17 @@ func TestGetOpportunities(t *testing.T) {
 					"value": 5.5,
 					"timestamp": "2026-06-16T00:00:00.000Z"
 				},
-				"tokens": [{"chainId": 8453, "address": "0xabc", "symbol": "superUSDC", "icon": "https://example.com/icon.png"}],
+				"tokens": [{"chainId": 8453, "address": "0xabc", "symbol": "superUSDC", "icon": "https://example.com/icon.png", "decimals": 6, "price": 1}],
 				"rewardsRecord": {
-					"breakdowns": [{"token": {"chainId": 8453, "address": "0xdef", "symbol": "SUP"}, "value": 100, "onChainCampaignId": "0x123"}]
+					"total": 100,
+					"breakdowns": [{
+						"campaignId": "campaign-a",
+						"distributionType": "FIX_REWARD_VALUE_PER_LIQUIDITY_VALUE",
+						"amount": "1000000000000000000",
+						"token": {"chainId": 8453, "address": "0xdef", "symbol": "SUP", "decimals": 18, "price": 0.42},
+						"value": 100,
+						"onChainCampaignId": "0x123"
+					}]
 				}
 			}
 		]`))
@@ -73,9 +82,113 @@ func TestGetOpportunities(t *testing.T) {
 	assert.Equal(t, "Native APR", opps[0].NativeAPRRecord.Title)
 	assert.Equal(t, "superUSDC", opps[0].Tokens[0].Symbol)
 	assert.Equal(t, "0x123", opps[0].RewardsRecord.Breakdowns[0].OnChainCampaignID)
+	assert.Equal(t, 18, opps[0].RewardsRecord.Breakdowns[0].Token.Decimals)
+	assert.Equal(t, 0.42, opps[0].RewardsRecord.Breakdowns[0].Token.Price)
 }
 
-func TestGetOpportunities_Paginates(t *testing.T) {
+func TestNewAppliesTransportWrapperWithMerklDefaults(t *testing.T) {
+	t.Parallel()
+
+	wrapped := false
+	c := mustNew(t, WithTransportWrapper(func(base http.RoundTripper) http.RoundTripper {
+		require.NotNil(t, base)
+		wrapped = true
+		return base
+	}))
+
+	merklClient := c.(*client)
+	require.NotNil(t, merklClient.httpClient)
+	require.NotNil(t, merklClient.httpClient.Client)
+	require.True(t, wrapped)
+	assert.Equal(t, defaultTimeout, merklClient.httpClient.Timeout)
+
+	transport, ok := merklClient.httpClient.Transport.(*utilshttp.Transport)
+	require.True(t, ok)
+	assert.Equal(t, defaultMaxRetries+1, transport.MaxRetries)
+	assert.Equal(t, defaultRetryDelay, transport.RetryDelay)
+}
+
+func TestListOpportunitiesBuildsQuery(t *testing.T) {
+	t.Parallel()
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		require.Equal(t, http.MethodGet, r.Method)
+		require.Equal(t, "/v4/opportunities", r.URL.Path)
+		require.Equal(t, "8453", r.URL.Query().Get("chainId"))
+		require.Equal(t, "50", r.URL.Query().Get("items"))
+		require.Equal(t, "2", r.URL.Query().Get("page"))
+		require.Equal(t, "superform", r.URL.Query().Get("mainProtocolId"))
+		require.Equal(t, OpportunityStatusLive, r.URL.Query().Get("status"))
+		require.Equal(t, "true", r.URL.Query().Get("campaigns"))
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`[
+			{
+				"id": "opp-1",
+				"campaigns": [{
+					"campaignId": "campaign-a",
+					"onChainCampaignId": "onchain-a",
+					"type": "FIX_REWARD_VALUE_PER_LIQUIDITY_VALUE",
+					"computeChainId": 8453,
+					"distributionChainId": 1,
+					"startTimestamp": 10,
+					"endTimestamp": 20,
+					"apr": 1.25,
+					"dailyRewards": 12.5,
+					"rewardToken": {"chainId": 1, "address": "0xdef", "symbol": "SUP", "decimals": 18, "price": 0.42}
+				}],
+				"earliestCampaignStart": 10,
+				"latestCampaignEnd": 20
+			}
+		]`))
+	}))
+	defer srv.Close()
+
+	c := mustNew(t, WithBaseURL(srv.URL), WithHTTPClient(srv.Client()))
+	opps, err := c.ListOpportunities(context.Background(), OpportunityQuery{
+		ChainID:        8453,
+		Items:          50,
+		Page:           2,
+		MainProtocolID: "superform",
+		Status:         OpportunityStatusLive,
+		Campaigns:      true,
+	})
+	require.NoError(t, err)
+	require.Len(t, opps, 1)
+
+	require.Len(t, opps[0].Campaigns, 1)
+	assert.Equal(t, "onchain-a", opps[0].Campaigns[0].OnChainCampaignID)
+	assert.Equal(t, 18, opps[0].Campaigns[0].RewardToken.Decimals)
+	assert.Equal(t, 0.42, opps[0].Campaigns[0].RewardToken.Price)
+	assert.Equal(t, int64(10), opps[0].EarliestCampaignStart)
+	assert.Equal(t, int64(20), opps[0].LatestCampaignEnd)
+}
+
+func TestListAllOpportunitiesPaginates(t *testing.T) {
+	t.Parallel()
+
+	var pages []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		pages = append(pages, r.URL.Query().Get("page"))
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Query().Get("page") {
+		case "0":
+			_, _ = w.Write([]byte(`[{"id":"a"},{"id":"b"}]`))
+		default:
+			_, _ = w.Write([]byte(`[{"id":"c"}]`))
+		}
+	}))
+	defer srv.Close()
+
+	c := mustNew(t, WithBaseURL(srv.URL), WithHTTPClient(srv.Client()))
+	opps, err := c.ListAllOpportunities(context.Background(), OpportunityQuery{ChainID: 1, Items: 2})
+	require.NoError(t, err)
+
+	assert.Equal(t, []string{"0", "1"}, pages)
+	require.Len(t, opps, 3)
+	assert.Equal(t, "c", opps[2].ID)
+}
+
+func TestGetOpportunitiesPaginates(t *testing.T) {
 	t.Parallel()
 
 	var pages []string
@@ -98,6 +211,30 @@ func TestGetOpportunities_Paginates(t *testing.T) {
 	assert.Equal(t, []string{"0", "1"}, pages)
 	require.Len(t, opps, 3)
 	assert.Equal(t, "c", opps[2].ID)
+}
+
+func TestCountOpportunitiesBuildsQuery(t *testing.T) {
+	t.Parallel()
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		require.Equal(t, http.MethodGet, r.Method)
+		require.Equal(t, "/v4/opportunities/count", r.URL.Path)
+		require.Equal(t, "8453", r.URL.Query().Get("chainId"))
+		require.Equal(t, "superform", r.URL.Query().Get("mainProtocolId"))
+		require.Equal(t, OpportunityStatusLive, r.URL.Query().Get("status"))
+		w.Header().Set("Content-Type", "text/plain")
+		_, _ = w.Write([]byte(`12`))
+	}))
+	defer srv.Close()
+
+	c := mustNew(t, WithBaseURL(srv.URL), WithHTTPClient(srv.Client()))
+	count, err := c.CountOpportunities(context.Background(), OpportunityCountQuery{
+		ChainID:        8453,
+		MainProtocolID: "superform",
+		Status:         OpportunityStatusLive,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, 12, count)
 }
 
 func TestGetUserRewards(t *testing.T) {

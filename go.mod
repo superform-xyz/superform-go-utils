@@ -6,6 +6,7 @@ require (
 	github.com/ethereum/go-ethereum v1.13.14
 	github.com/pkg/errors v0.9.1
 	github.com/stretchr/testify v1.8.4
+	golang.org/x/time v0.3.0
 )
 
 require (

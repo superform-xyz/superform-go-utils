@@ -155,6 +155,20 @@ func TestClientBuilderBuildClient(t *testing.T) {
 		assert.Equal(t, "Bearer token", transport.AuthHeaderVal)
 	})
 
+	t.Run("with transport wrapper", func(t *testing.T) {
+		wrapped := false
+		client := NewClientBuilder().
+			SetTransportWrapper(func(base http.RoundTripper) http.RoundTripper {
+				require.NotNil(t, base)
+				wrapped = true
+				return base
+			}).
+			BuildClient()
+		transport := client.Transport.(*Transport)
+		require.NotNil(t, transport.BaseTransport)
+		require.True(t, wrapped)
+	})
+
 	t.Run("all options", func(t *testing.T) {
 		client := NewClientBuilder().
 			SetAuth("X-Key", "val").
