@@ -136,8 +136,8 @@ func TestListOpportunitiesBuildsQuery(t *testing.T) {
 					"dailyRewards": 12.5,
 					"rewardToken": {"chainId": 1, "address": "0xdef", "symbol": "SUP", "decimals": 18, "price": 0.42}
 				}],
-				"earliestCampaignStart": 10,
-				"latestCampaignEnd": 20
+				"earliestCampaignStart": "10",
+				"latestCampaignEnd": "20"
 			}
 		]`))
 	}))
@@ -159,11 +159,11 @@ func TestListOpportunitiesBuildsQuery(t *testing.T) {
 	assert.Equal(t, "onchain-a", opps[0].Campaigns[0].OnChainCampaignID)
 	assert.Equal(t, 18, opps[0].Campaigns[0].RewardToken.Decimals)
 	assert.Equal(t, 0.42, opps[0].Campaigns[0].RewardToken.Price)
-	assert.Equal(t, int64(10), opps[0].EarliestCampaignStart)
-	assert.Equal(t, int64(20), opps[0].LatestCampaignEnd)
+	assert.Equal(t, "10", opps[0].EarliestCampaignStart)
+	assert.Equal(t, "20", opps[0].LatestCampaignEnd)
 }
 
-func TestListOpportunitiesParsesCampaignWindowStrings(t *testing.T) {
+func TestListOpportunitiesDecodesCampaignWindowStrings(t *testing.T) {
 	t.Parallel()
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
@@ -183,8 +183,8 @@ func TestListOpportunitiesParsesCampaignWindowStrings(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, opps, 1)
 
-	assert.Equal(t, int64(1782684000), opps[0].EarliestCampaignStart)
-	assert.Equal(t, int64(1785276000), opps[0].LatestCampaignEnd)
+	assert.Equal(t, "1782684000", opps[0].EarliestCampaignStart)
+	assert.Equal(t, "1785276000", opps[0].LatestCampaignEnd)
 }
 
 func TestListAllOpportunitiesPaginates(t *testing.T) {
