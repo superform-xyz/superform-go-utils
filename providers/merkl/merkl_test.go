@@ -163,6 +163,30 @@ func TestListOpportunitiesBuildsQuery(t *testing.T) {
 	assert.Equal(t, int64(20), opps[0].LatestCampaignEnd)
 }
 
+func TestListOpportunitiesParsesCampaignWindowStrings(t *testing.T) {
+	t.Parallel()
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`[
+			{
+				"id": "opp-1",
+				"earliestCampaignStart": "1782684000",
+				"latestCampaignEnd": "1785276000"
+			}
+		]`))
+	}))
+	defer srv.Close()
+
+	c := mustNew(t, WithBaseURL(srv.URL), WithHTTPClient(srv.Client()))
+	opps, err := c.ListOpportunities(context.Background(), OpportunityQuery{ChainID: 8453})
+	require.NoError(t, err)
+	require.Len(t, opps, 1)
+
+	assert.Equal(t, int64(1782684000), opps[0].EarliestCampaignStart)
+	assert.Equal(t, int64(1785276000), opps[0].LatestCampaignEnd)
+}
+
 func TestListAllOpportunitiesPaginates(t *testing.T) {
 	t.Parallel()
 
