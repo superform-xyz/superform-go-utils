@@ -5,23 +5,53 @@ type RootInfo struct {
 	Live string `json:"live"`
 }
 
+const (
+	// MaxOpportunityItems is the maximum page size accepted by /v4/opportunities.
+	MaxOpportunityItems = 100
+
+	// OpportunityStatusLive is Merkl's live opportunity status.
+	OpportunityStatusLive = "LIVE"
+)
+
+// OpportunityQuery contains filters accepted by /v4/opportunities.
+type OpportunityQuery struct {
+	ChainID        uint64
+	Items          int
+	Page           int
+	MainProtocolID string
+	Status         string
+	Campaigns      bool
+}
+
+// OpportunityCountQuery contains filters accepted by /v4/opportunities/count.
+type OpportunityCountQuery struct {
+	ChainID        uint64
+	MainProtocolID string
+	Status         string
+}
+
 // Opportunity models the subset of Merkl opportunity fields used by backend services.
 type Opportunity struct {
-	ID              string          `json:"id"`
-	Name            string          `json:"name"`
-	Type            string          `json:"type"`
-	ChainID         int             `json:"chainId"`
-	Identifier      string          `json:"identifier"`
-	Status          string          `json:"status"`
-	Action          string          `json:"action"`
-	Apr             float64         `json:"apr"`
-	AprRecord       APRRecord       `json:"aprRecord"`
-	NativeAPRRecord NativeAPRRecord `json:"nativeAprRecord"`
-	TVL             float64         `json:"tvl"`
-	Tags            []string        `json:"tags"`
-	ExplorerAddress string          `json:"explorerAddress"`
-	Tokens          []Token         `json:"tokens"`
-	RewardsRecord   RewardsRecord   `json:"rewardsRecord"`
+	ID                    string          `json:"id"`
+	Name                  string          `json:"name"`
+	Type                  string          `json:"type"`
+	ChainID               int             `json:"chainId"`
+	Identifier            string          `json:"identifier"`
+	Status                string          `json:"status"`
+	Action                string          `json:"action"`
+	Apr                   float64         `json:"apr"`
+	AprRecord             APRRecord       `json:"aprRecord"`
+	NativeAPRRecord       NativeAPRRecord `json:"nativeAprRecord"`
+	TVL                   float64         `json:"tvl"`
+	DailyRewards          float64         `json:"dailyRewards"`
+	LiveCampaigns         int             `json:"liveCampaigns"`
+	Tags                  []string        `json:"tags"`
+	ExplorerAddress       string          `json:"explorerAddress"`
+	Tokens                []Token         `json:"tokens"`
+	RewardsRecord         RewardsRecord   `json:"rewardsRecord"`
+	Campaigns             []Campaign      `json:"campaigns"`
+	EarliestCampaignStart int64           `json:"earliestCampaignStart"`
+	LatestCampaignEnd     int64           `json:"latestCampaignEnd"`
 }
 
 // APRRecord contains the Merkl APR calculation timestamp and breakdowns.
@@ -33,8 +63,10 @@ type APRRecord struct {
 
 // APRBreakdown captures an APR component from Merkl's opportunity payload.
 type APRBreakdown struct {
-	Type  string  `json:"type"`
-	Value float64 `json:"value"`
+	Identifier       string  `json:"identifier"`
+	Type             string  `json:"type"`
+	DistributionType string  `json:"distributionType"`
+	Value            float64 `json:"value"`
 }
 
 // NativeAPRRecord contains optional native APR data in Merkl opportunity payloads.
@@ -47,22 +79,42 @@ type NativeAPRRecord struct {
 
 // RewardsRecord contains the reward breakdowns for an opportunity.
 type RewardsRecord struct {
+	Total      float64           `json:"total"`
 	Breakdowns []RewardBreakdown `json:"breakdowns"`
 }
 
 // RewardBreakdown captures an individual reward token.
 type RewardBreakdown struct {
+	CampaignID        string  `json:"campaignId"`
+	OnChainCampaignID string  `json:"onChainCampaignId"`
+	DistributionType  string  `json:"distributionType"`
+	Amount            string  `json:"amount"`
 	Token             Token   `json:"token"`
 	Value             float64 `json:"value"`
-	OnChainCampaignID string  `json:"onChainCampaignId"`
 }
 
 // Token describes a reward token returned by the Merkl API.
 type Token struct {
-	ChainID int    `json:"chainId"`
-	Address string `json:"address"`
-	Symbol  string `json:"symbol"`
-	Icon    string `json:"icon"`
+	ChainID  int     `json:"chainId"`
+	Address  string  `json:"address"`
+	Symbol   string  `json:"symbol"`
+	Icon     string  `json:"icon"`
+	Decimals int     `json:"decimals"`
+	Price    float64 `json:"price"`
+}
+
+// Campaign captures campaign-level details when /v4/opportunities is queried with campaigns=true.
+type Campaign struct {
+	CampaignID          string  `json:"campaignId"`
+	OnChainCampaignID   string  `json:"onChainCampaignId"`
+	Type                string  `json:"type"`
+	ComputeChainID      int     `json:"computeChainId"`
+	DistributionChainID int     `json:"distributionChainId"`
+	StartTimestamp      int64   `json:"startTimestamp"`
+	EndTimestamp        int64   `json:"endTimestamp"`
+	Apr                 float64 `json:"apr"`
+	DailyRewards        float64 `json:"dailyRewards"`
+	RewardToken         Token   `json:"rewardToken"`
 }
 
 // UserRewardsChain captures Merkl user rewards grouped by chain.

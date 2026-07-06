@@ -2,6 +2,7 @@
 package merkl
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -13,25 +14,34 @@ import (
 	"time"
 
 	"github.com/superform-xyz/superform-go-utils/pkg/http_client"
+	"golang.org/x/time/rate"
 )
 
 const (
-	defaultBaseURL        = "https://api.merkl.xyz"
-	apiKeyHeader          = "X-API-Key"
-	rootsLivePath         = "/v4/roots/live"
-	opportunitiesPath     = "/v4/opportunities"
-	userRewardsPath       = "/v4/users/%s/rewards"
-	defaultItemsLimit     = 100
-	defaultMaxRetries     = uint(4)
-	defaultRetryDelay     = 2 * time.Second
-	maxResponseBody       = 8 << 20
-	maxErrorResponseBytes = 512
+	defaultBaseURL         = "https://api.merkl.xyz"
+	apiKeyHeader           = "X-API-Key"
+	rootsLivePath          = "/v4/roots/live"
+	opportunitiesPath      = "/v4/opportunities"
+	opportunitiesCountPath = "/v4/opportunities/count"
+	userRewardsPath        = "/v4/users/%s/rewards"
+	defaultItemsLimit      = 100
+	defaultMaxRetries      = uint(4)
+	defaultRetryDelay      = 2 * time.Second
+	maxResponseBody        = 8 << 20
+	maxErrorResponseBytes  = 512
+	maxOpportunityPages    = 1000
 )
 
 // Client defines the generic Merkl API surface shared across backend services.
 type Client interface {
 	// GetOpportunities retrieves Merkl opportunities for a chain and optionally filters by main protocol.
 	GetOpportunities(ctx context.Context, chainID uint64, limit int, mainProtocolID string) ([]Opportunity, error)
+	// ListOpportunities fetches one Merkl opportunities page.
+	ListOpportunities(ctx context.Context, query OpportunityQuery) ([]Opportunity, error)
+	// ListAllOpportunities fetches all pages for the provided opportunity filters.
+	ListAllOpportunities(ctx context.Context, query OpportunityQuery) ([]Opportunity, error)
+	// CountOpportunities returns the number of opportunities matching the provided filters.
+	CountOpportunities(ctx context.Context, query OpportunityCountQuery) (int, error)
 	// GetUserRewards retrieves claimable rewards for a user, optionally filtered by chain.
 	GetUserRewards(ctx context.Context, user string, chainID uint64) ([]UserRewardsChain, error)
 	// GetLiveRoots retrieves the current live Merkl root per chain.
@@ -43,6 +53,7 @@ type client struct {
 	baseURL    string
 	apiKey     string
 	httpClient *http_client.Client
+	limiter    *rate.Limiter
 }
 
 var _ Client = (*client)(nil)
@@ -76,6 +87,21 @@ func WithAPIKey(apiKey string) Option {
 	}
 }
 
+// WithRateLimit limits outbound Merkl API requests when qps is positive.
+func WithRateLimit(qps float64) Option {
+	return func(c *client) {
+		if qps <= 0 {
+			c.limiter = nil
+			return
+		}
+		burst := int(qps) + 1
+		if burst < 1 {
+			burst = 1
+		}
+		c.limiter = rate.NewLimiter(rate.Limit(qps), burst)
+	}
+}
+
 // New creates a Merkl API client.
 func New(opts ...Option) (Client, error) {
 	c := &client{
@@ -99,39 +125,70 @@ func New(opts ...Option) (Client, error) {
 
 // GetOpportunities retrieves Merkl opportunities filtered by chain and optional main protocol.
 func (c *client) GetOpportunities(ctx context.Context, chainID uint64, limit int, mainProtocolID string) ([]Opportunity, error) {
-	if limit <= 0 {
-		limit = defaultItemsLimit
+	return c.ListAllOpportunities(ctx, OpportunityQuery{
+		ChainID:        chainID,
+		Items:          limit,
+		MainProtocolID: mainProtocolID,
+	})
+}
+
+// ListOpportunities fetches one Merkl opportunities page.
+func (c *client) ListOpportunities(ctx context.Context, query OpportunityQuery) ([]Opportunity, error) {
+	values, _, err := opportunityQueryValues(query)
+	if err != nil {
+		return nil, err
+	}
+
+	var out []Opportunity
+	if err := c.getJSON(ctx, opportunitiesPath, values, &out); err != nil {
+		return nil, fmt.Errorf("merkl opportunities: %w", err)
+	}
+	return out, nil
+}
+
+// ListAllOpportunities fetches all pages for the provided opportunity filters.
+func (c *client) ListAllOpportunities(ctx context.Context, query OpportunityQuery) ([]Opportunity, error) {
+	_, items, err := opportunityQueryValues(query)
+	if err != nil {
+		return nil, err
 	}
 
 	var all []Opportunity
-	page := 0
-	for {
-		values := url.Values{}
-		values.Set("items", strconv.Itoa(limit))
-		values.Set("page", strconv.Itoa(page))
-		if chainID != 0 {
-			values.Set("chainId", strconv.FormatUint(chainID, 10))
+	page := query.Page
+	for pages := 0; ; pages++ {
+		if pages >= maxOpportunityPages {
+			return all, fmt.Errorf("merkl pagination exceeded %d pages", maxOpportunityPages)
 		}
-		if mainProtocolID = strings.TrimSpace(mainProtocolID); mainProtocolID != "" {
-			values.Set("mainProtocolId", mainProtocolID)
+		query.Page = page
+		query.Items = items
+
+		pageItems, err := c.ListOpportunities(ctx, query)
+		if err != nil {
+			return nil, err
 		}
 
-		var pageItems []Opportunity
-		if err := c.getJSON(ctx, opportunitiesPath, values, &pageItems); err != nil {
-			return nil, fmt.Errorf("merkl opportunities: %w", err)
-		}
 		all = append(all, pageItems...)
-		if len(pageItems) < limit {
+		if len(pageItems) < items {
 			break
 		}
-
 		page++
-		if page > 1000 {
-			return all, fmt.Errorf("merkl pagination exceeded 1000 pages for chain %d", chainID)
-		}
 	}
 
 	return all, nil
+}
+
+// CountOpportunities returns the number of opportunities matching the provided filters.
+func (c *client) CountOpportunities(ctx context.Context, query OpportunityCountQuery) (int, error) {
+	body, err := c.getBody(ctx, opportunitiesCountPath, opportunityCountQueryValues(query))
+	if err != nil {
+		return 0, fmt.Errorf("merkl opportunities count: %w", err)
+	}
+
+	count, err := strconv.Atoi(strings.TrimSpace(string(body)))
+	if err != nil {
+		return 0, fmt.Errorf("parse merkl opportunities count %q: %w", body, err)
+	}
+	return count, nil
 }
 
 // GetUserRewards retrieves claimable rewards for a user, optionally filtered by chain.
@@ -170,9 +227,96 @@ func (c *client) Close() error {
 	return nil
 }
 
+func opportunityQueryValues(query OpportunityQuery) (url.Values, int, error) {
+	items, err := normalizeOpportunityItems(query.Items)
+	if err != nil {
+		return nil, 0, err
+	}
+	if query.Page < 0 {
+		return nil, 0, fmt.Errorf("merkl opportunities page must be >= 0, got %d", query.Page)
+	}
+
+	values := url.Values{}
+	values.Set("items", strconv.Itoa(items))
+	values.Set("page", strconv.Itoa(query.Page))
+	if query.ChainID != 0 {
+		values.Set("chainId", strconv.FormatUint(query.ChainID, 10))
+	}
+	if mainProtocolID := strings.TrimSpace(query.MainProtocolID); mainProtocolID != "" {
+		values.Set("mainProtocolId", mainProtocolID)
+	}
+	if status := strings.TrimSpace(query.Status); status != "" {
+		values.Set("status", status)
+	}
+	if query.Campaigns {
+		values.Set("campaigns", "true")
+	}
+
+	return values, items, nil
+}
+
+func opportunityCountQueryValues(query OpportunityCountQuery) url.Values {
+	values := url.Values{}
+	if query.ChainID != 0 {
+		values.Set("chainId", strconv.FormatUint(query.ChainID, 10))
+	}
+	if mainProtocolID := strings.TrimSpace(query.MainProtocolID); mainProtocolID != "" {
+		values.Set("mainProtocolId", mainProtocolID)
+	}
+	if status := strings.TrimSpace(query.Status); status != "" {
+		values.Set("status", status)
+	}
+	return values
+}
+
+func normalizeOpportunityItems(items int) (int, error) {
+	if items <= 0 {
+		return defaultItemsLimit, nil
+	}
+	if items > MaxOpportunityItems {
+		return 0, fmt.Errorf("merkl opportunities items must be in [1, %d], got %d", MaxOpportunityItems, items)
+	}
+	return items, nil
+}
+
 func (c *client) getJSON(ctx context.Context, path string, values url.Values, out any) error {
+	body, err := c.getBody(ctx, path, values)
+	if err != nil {
+		return err
+	}
+	if err := json.NewDecoder(bytes.NewReader(body)).Decode(out); err != nil {
+		return fmt.Errorf("decode response: %w", err)
+	}
+	return nil
+}
+
+func (c *client) getBody(ctx context.Context, path string, values url.Values) ([]byte, error) {
+	resp, err := c.doGET(ctx, path, values)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, maxErrorResponseBytes))
+		return nil, fmt.Errorf("status %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+	}
+
+	body, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseBody))
+	if err != nil {
+		return nil, fmt.Errorf("read response: %w", err)
+	}
+	return body, nil
+}
+
+func (c *client) doGET(ctx context.Context, path string, values url.Values) (*http.Response, error) {
 	if ctx == nil {
 		ctx = context.Background()
+	}
+	if c.limiter != nil {
+		if err := c.limiter.Wait(ctx); err != nil {
+			return nil, fmt.Errorf("rate limit wait: %w", err)
+		}
 	}
 
 	endpoint := c.baseURL + path
@@ -182,7 +326,7 @@ func (c *client) getJSON(ctx context.Context, path string, values url.Values, ou
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
 	if err != nil {
-		return fmt.Errorf("build request: %w", err)
+		return nil, fmt.Errorf("build request: %w", err)
 	}
 	req.Header.Set("Accept", "application/json")
 	if c.apiKey != "" {
@@ -191,17 +335,7 @@ func (c *client) getJSON(ctx context.Context, path string, values url.Values, ou
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
-		return fmt.Errorf("request failed: %w", err)
+		return nil, fmt.Errorf("request failed: %w", err)
 	}
-	defer func() { _ = resp.Body.Close() }()
-
-	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
-		body, _ := io.ReadAll(io.LimitReader(resp.Body, maxErrorResponseBytes))
-		return fmt.Errorf("status %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
-	}
-
-	if err := json.NewDecoder(io.LimitReader(resp.Body, maxResponseBody)).Decode(out); err != nil {
-		return fmt.Errorf("decode response: %w", err)
-	}
-	return nil
+	return resp, nil
 }
