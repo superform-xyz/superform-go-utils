@@ -2,6 +2,9 @@ package finnhub
 
 import "encoding/json"
 
+// MillionUnit converts Finnhub values documented in millions into base units.
+const MillionUnit = 1_000_000.0
+
 type CompanyProfile struct {
 	Country              string   `json:"country"`
 	Currency             string   `json:"currency"`
