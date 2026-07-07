@@ -21,6 +21,11 @@ packages:
       dir: "providers/defillama/mocks"
     interfaces:
       DefiLlama:
+  github.com/superform-xyz/superform-go-utils/providers/finnhub:
+    config:
+      dir: "providers/finnhub/mocks"
+    interfaces:
+      Client:
   github.com/superform-xyz/superform-go-utils/providers/kyberswap:
     config:
       dir: "providers/kyberswap/mocks"
@@ -46,3 +51,8 @@ packages:
       dir: "providers/zerion/mocks"
     interfaces:
       Zerion:
+  github.com/superform-xyz/superform-go-utils/providers/yahoo:
+    config:
+      dir: "providers/yahoo/mocks"
+    interfaces:
+      Client:
