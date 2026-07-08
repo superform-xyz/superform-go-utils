@@ -53,6 +53,38 @@ type GetOrdersResponse struct {
 	Orders []Order
 }
 
+// GetFiatCurrenciesResponse contains Transak fiat currencies and their
+// payment-method options.
+type GetFiatCurrenciesResponse struct {
+	Currencies []FiatCurrency
+}
+
+// FiatCurrency models the public Transak fiat-currency catalog fields used by
+// downstream services to discover available payment methods and limits.
+type FiatCurrency struct {
+	Symbol              string              `json:"symbol"`
+	Name                string              `json:"name"`
+	IsAllowed           bool                `json:"isAllowed"`
+	SupportingCountries []string            `json:"supportingCountries"`
+	PaymentOptions      []FiatPaymentOption `json:"paymentOptions"`
+}
+
+// FiatPaymentOption models a Transak payment method attached to a fiat
+// currency in the public catalog.
+type FiatPaymentOption struct {
+	ID                   string      `json:"id"`
+	Name                 string      `json:"name"`
+	DisplayText          bool        `json:"displayText"`
+	ProcessingTime       string      `json:"processingTime"`
+	Icon                 string      `json:"icon"`
+	LimitCurrency        string      `json:"limitCurrency"`
+	MinAmount            json.Number `json:"minAmount"`
+	MaxAmount            json.Number `json:"maxAmount"`
+	IsActive             bool        `json:"isActive"`
+	DisplayMessage       string      `json:"displayMessage"`
+	SupportedCountryCode []string    `json:"supportedCountryCode"`
+}
+
 // Order models the subset of Transak order fields needed by persephone.
 type Order struct {
 	ID                string `json:"_id"`

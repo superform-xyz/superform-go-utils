@@ -22,6 +22,7 @@ const (
 	refreshTokenPath        = "/partners/api/v2/refresh-token"
 	createWidgetSessionPath = "/api/v2/auth/session"
 	getOrdersPath           = "/partners/api/v2/orders"
+	getFiatCurrenciesPath   = "/fiat/public/v1/currencies/fiat-currencies"
 
 	apiSecretHeader   = "api-secret"
 	apiKeyHeader      = "x-api-key"
@@ -65,6 +66,7 @@ type Client interface {
 	RefreshToken(ctx context.Context) (*AccessToken, error)
 	CreateWidgetSession(ctx context.Context, accessToken string, req CreateWidgetSessionRequest) (*CreateWidgetSessionResponse, error)
 	GetOrders(ctx context.Context, accessToken string, req GetOrdersRequest) (*GetOrdersResponse, error)
+	GetFiatCurrencies(ctx context.Context) (*GetFiatCurrenciesResponse, error)
 	Close() error
 }
 
@@ -234,6 +236,34 @@ func (c *client) GetOrders(ctx context.Context, accessToken string, req GetOrder
 	return &GetOrdersResponse{Orders: orders}, nil
 }
 
+// GetFiatCurrencies returns Transak's public fiat-currency catalog, including
+// payment method options, limits, and country support.
+func (c *client) GetFiatCurrencies(ctx context.Context) (*GetFiatCurrenciesResponse, error) {
+	endpoint, err := url.Parse(c.apiBaseURL + getFiatCurrenciesPath)
+	if err != nil {
+		return nil, fmt.Errorf("transak get fiat currencies: build endpoint: %w", err)
+	}
+	values := endpoint.Query()
+	values.Set("apiKey", c.apiKey)
+	endpoint.RawQuery = values.Encode()
+
+	var raw json.RawMessage
+	err = c.doJSON(ctx, http.MethodGet, endpoint.String(), nil, &raw, func(r *http.Request) {
+		r.Header.Set(apiKeyHeader, c.apiKey)
+	})
+	if err != nil {
+		return nil, fmt.Errorf("transak get fiat currencies: %w", err)
+	}
+	currencies, err := decodeFiatCurrencies(raw)
+	if err != nil {
+		return nil, fmt.Errorf("transak get fiat currencies: %w", err)
+	}
+	if len(currencies) == 0 {
+		return nil, errors.New("transak get fiat currencies: empty catalog")
+	}
+	return &GetFiatCurrenciesResponse{Currencies: currencies}, nil
+}
+
 func (c *client) Close() error {
 	if c.httpClient != nil {
 		c.httpClient.CloseIdleConnections()
@@ -346,6 +376,25 @@ func (e getOrdersEnvelope) Orders() ([]Order, error) {
 		return nil, fmt.Errorf("decode data: %w", err)
 	}
 	return object.Orders, nil
+}
+
+type fiatCurrenciesEnvelope struct {
+	Response []FiatCurrency `json:"response"`
+}
+
+func decodeFiatCurrencies(raw json.RawMessage) ([]FiatCurrency, error) {
+	if len(raw) == 0 || string(raw) == "null" {
+		return nil, nil
+	}
+	var envelope fiatCurrenciesEnvelope
+	if err := json.Unmarshal(raw, &envelope); err == nil && envelope.Response != nil {
+		return envelope.Response, nil
+	}
+	var direct []FiatCurrency
+	if err := json.Unmarshal(raw, &direct); err != nil {
+		return nil, fmt.Errorf("decode response: %w", err)
+	}
+	return direct, nil
 }
 
 type unixTime struct {

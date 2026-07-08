@@ -292,6 +292,52 @@ func TestGetOrdersEncodesLimitAndSkip(t *testing.T) {
 	}
 }
 
+func TestGetFiatCurrencies(t *testing.T) {
+	t.Parallel()
+
+	var gotAPIKeyHeader string
+	var gotAPIKeyQuery string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		require.Equal(t, http.MethodGet, r.Method)
+		require.Equal(t, getFiatCurrenciesPath, r.URL.Path)
+		gotAPIKeyHeader = r.Header.Get(apiKeyHeader)
+		gotAPIKeyQuery = r.URL.Query().Get("apiKey")
+		_, _ = w.Write([]byte(`{"response":[{"symbol":"USD","name":"US dollar","isAllowed":true,"supportingCountries":["US"],"paymentOptions":[{"name":"Wire","id":"pm_wire","displayText":true,"processingTime":"1-3 days","icon":"https://assets.transak.com/wire.svg","limitCurrency":"USD","minAmount":100,"maxAmount":50000,"isActive":true,"supportedCountryCode":["US"]}]}]}`))
+	}))
+	defer srv.Close()
+
+	c := mustNew(t, WithAPIBaseURL(srv.URL), WithHTTPClient(srv.Client()))
+	got, err := c.GetFiatCurrencies(context.Background())
+	require.NoError(t, err)
+	require.Len(t, got.Currencies, 1)
+	require.Len(t, got.Currencies[0].PaymentOptions, 1)
+
+	assert.Equal(t, "api-key", gotAPIKeyHeader)
+	assert.Equal(t, "api-key", gotAPIKeyQuery)
+	assert.Equal(t, "USD", got.Currencies[0].Symbol)
+	assert.Equal(t, []string{"US"}, got.Currencies[0].SupportingCountries)
+	option := got.Currencies[0].PaymentOptions[0]
+	assert.Equal(t, "pm_wire", option.ID)
+	assert.Equal(t, json.Number("100"), option.MinAmount)
+	assert.Equal(t, json.Number("50000"), option.MaxAmount)
+	assert.Equal(t, []string{"US"}, option.SupportedCountryCode)
+}
+
+func TestGetFiatCurrenciesSupportsDirectArrayResponse(t *testing.T) {
+	t.Parallel()
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`[{"symbol":"EUR","name":"Euro","isAllowed":true}]`))
+	}))
+	defer srv.Close()
+
+	c := mustNew(t, WithAPIBaseURL(srv.URL), WithHTTPClient(srv.Client()))
+	got, err := c.GetFiatCurrencies(context.Background())
+	require.NoError(t, err)
+	require.Len(t, got.Currencies, 1)
+	assert.Equal(t, "EUR", got.Currencies[0].Symbol)
+}
+
 func TestRefreshTokenParsesRFC3339Expiry(t *testing.T) {
 	t.Parallel()
 
