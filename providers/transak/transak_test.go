@@ -90,7 +90,7 @@ func TestCreateWidgetSession(t *testing.T) {
 			PaymentMethod:            "credit_debit_card",
 			DefaultFiatCurrency:      "USD",
 			CountryCode:              "US",
-			DefaultFiatAmount:        "100.00",
+			DefaultFiatAmount:        json.Number("100.00"),
 		},
 	})
 	require.NoError(t, err)
@@ -102,7 +102,33 @@ func TestCreateWidgetSession(t *testing.T) {
 	assert.Equal(t, "BUY", gotWidgetParams["productsAvailed"])
 	assert.Equal(t, "USDC", gotWidgetParams["defaultCryptoCurrency"])
 	assert.Equal(t, "US", gotWidgetParams["countryCode"])
+	amount, ok := gotWidgetParams["defaultFiatAmount"].(float64)
+	require.True(t, ok)
+	assert.Equal(t, 100.00, amount)
 	assert.Equal(t, "https://global.transak.com?apiKey=api-key&sessionId=session", got.WidgetURL)
+}
+
+func TestCreateWidgetSessionOmitsEmptyDefaultFiatAmount(t *testing.T) {
+	t.Parallel()
+
+	var gotWidgetParams map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		require.Equal(t, http.MethodPost, r.Method)
+		body := readJSONObject(t, r)
+		var ok bool
+		gotWidgetParams, ok = body["widgetParams"].(map[string]any)
+		require.True(t, ok)
+		_, _ = w.Write([]byte(`{"data":{"widgetUrl":"https://global.transak.com?apiKey=api-key&sessionId=session"}}`))
+	}))
+	defer srv.Close()
+
+	c := mustNew(t, WithGatewayBaseURL(srv.URL), WithHTTPClient(srv.Client()))
+	_, err := c.CreateWidgetSession(context.Background(), "partner-token", CreateWidgetSessionRequest{
+		WidgetParams: WidgetParams{ProductsAvailed: "BUY"},
+	})
+	require.NoError(t, err)
+
+	assert.NotContains(t, gotWidgetParams, "defaultFiatAmount")
 }
 
 func TestGetOrdersUsesPartnerOrderIDFilter(t *testing.T) {

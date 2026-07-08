@@ -21,19 +21,19 @@ type CreateWidgetSessionRequest struct {
 
 // WidgetParams is the allow-listed widget parameter set Superform uses for BUY.
 type WidgetParams struct {
-	APIKey                   string `json:"apiKey,omitempty"`
-	ReferrerDomain           string `json:"referrerDomain,omitempty"`
-	PartnerOrderID           string `json:"partnerOrderId,omitempty"`
-	PartnerCustomerID        string `json:"partnerCustomerId,omitempty"`
-	WalletAddress            string `json:"walletAddress,omitempty"`
-	DisableWalletAddressForm bool   `json:"disableWalletAddressForm"`
-	ProductsAvailed          string `json:"productsAvailed,omitempty"`
-	Network                  string `json:"network,omitempty"`
-	DefaultCryptoCurrency    string `json:"defaultCryptoCurrency,omitempty"`
-	PaymentMethod            string `json:"paymentMethod,omitempty"`
-	DefaultFiatCurrency      string `json:"defaultFiatCurrency,omitempty"`
-	CountryCode              string `json:"countryCode,omitempty"`
-	DefaultFiatAmount        string `json:"defaultFiatAmount,omitempty"`
+	APIKey                   string      `json:"apiKey,omitempty"`
+	ReferrerDomain           string      `json:"referrerDomain,omitempty"`
+	PartnerOrderID           string      `json:"partnerOrderId,omitempty"`
+	PartnerCustomerID        string      `json:"partnerCustomerId,omitempty"`
+	WalletAddress            string      `json:"walletAddress,omitempty"`
+	DisableWalletAddressForm bool        `json:"disableWalletAddressForm"`
+	ProductsAvailed          string      `json:"productsAvailed,omitempty"`
+	Network                  string      `json:"network,omitempty"`
+	DefaultCryptoCurrency    string      `json:"defaultCryptoCurrency,omitempty"`
+	PaymentMethod            string      `json:"paymentMethod,omitempty"`
+	DefaultFiatCurrency      string      `json:"defaultFiatCurrency,omitempty"`
+	CountryCode              string      `json:"countryCode,omitempty"`
+	DefaultFiatAmount        json.Number `json:"defaultFiatAmount,omitempty"`
 }
 
 // CreateWidgetSessionResponse is the safe subset returned by Transak.
