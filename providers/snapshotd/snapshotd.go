@@ -1,10 +1,8 @@
-// Package snapshotd implements an authenticated client for the SuperVault snapshot service.
+// Package snapshotd implements an unauthenticated client for the public SuperVault snapshot service.
 package snapshotd
 
 import (
-	"bytes"
 	"context"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -17,14 +15,12 @@ import (
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
-	"github.com/golang-jwt/jwt/v5"
 )
 
 const (
-	defaultTimeout      = 10 * time.Second
-	maxResponseBody     = 4 << 20
-	maxErrorResponse    = 4 << 10
-	minimumSecretLength = 32
+	defaultTimeout   = 10 * time.Second
+	maxResponseBody  = 4 << 20
+	maxErrorResponse = 4 << 10
 )
 
 var (
@@ -37,12 +33,9 @@ var (
 )
 
 type client struct {
-	baseURL      string
-	jwtSecretHex string
-	jwtSecret    []byte
-	httpClient   *http.Client
-	timeout      time.Duration
-	now          func() time.Time
+	baseURL    string
+	httpClient *http.Client
+	timeout    time.Duration
 }
 
 var _ Client = (*client)(nil)
@@ -54,13 +47,6 @@ type Option func(*client)
 func WithBaseURL(baseURL string) Option {
 	return func(c *client) {
 		c.baseURL = strings.TrimRight(strings.TrimSpace(baseURL), "/")
-	}
-}
-
-// WithJWTSecretHex configures the hex-encoded HS256 signing secret.
-func WithJWTSecretHex(secret string) Option {
-	return func(c *client) {
-		c.jwtSecretHex = strings.TrimSpace(secret)
 	}
 }
 
@@ -80,19 +66,10 @@ func WithTimeout(timeout time.Duration) Option {
 	}
 }
 
-func withClock(now func() time.Time) Option {
-	return func(c *client) {
-		if now != nil {
-			c.now = now
-		}
-	}
-}
-
-// New creates a snapshotd client. A base URL and JWT secret are required.
+// New creates a snapshotd client. A base URL is required.
 func New(opts ...Option) (Client, error) {
 	c := &client{
 		timeout: defaultTimeout,
-		now:     time.Now,
 	}
 	for _, opt := range opts {
 		if opt != nil {
@@ -103,12 +80,6 @@ func New(opts ...Option) (Client, error) {
 	if err := validateBaseURL(c.baseURL); err != nil {
 		return nil, err
 	}
-	secret, err := decodeJWTSecret(c.jwtSecretHex)
-	if err != nil {
-		return nil, err
-	}
-	c.jwtSecret = secret
-	c.jwtSecretHex = ""
 
 	if c.httpClient == nil {
 		if c.timeout <= 0 {
@@ -176,11 +147,6 @@ func (c *client) getJSON(ctx context.Context, endpoint string, out any) error {
 	if err != nil {
 		return fmt.Errorf("build request: %w", err)
 	}
-	token, err := c.mintJWT()
-	if err != nil {
-		return fmt.Errorf("mint JWT: %w", err)
-	}
-	req.Header.Set("Authorization", "Bearer "+token)
 	req.Header.Set("Accept", "application/json")
 
 	resp, err := c.httpClient.Do(req)
@@ -202,13 +168,6 @@ func (c *client) getJSON(ctx context.Context, endpoint string, out any) error {
 	return nil
 }
 
-func (c *client) mintJWT() (string, error) {
-	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
-		"iat": c.now().Unix(),
-	})
-	return token.SignedString(c.jwtSecret)
-}
-
 func validateBaseURL(baseURL string) error {
 	if baseURL == "" {
 		return errors.New("snapshotd: base URL is required")
@@ -224,24 +183,6 @@ func validateBaseURL(baseURL string) error {
 		return fmt.Errorf("snapshotd: invalid base URL %q", baseURL)
 	}
 	return nil
-}
-
-func decodeJWTSecret(secretHex string) ([]byte, error) {
-	secretHex = strings.TrimPrefix(strings.TrimSpace(secretHex), "0x")
-	if secretHex == "" {
-		return nil, errors.New("snapshotd: JWT secret is required")
-	}
-	secret, err := hex.DecodeString(secretHex)
-	if err != nil {
-		return nil, fmt.Errorf("snapshotd: decode JWT secret: %w", err)
-	}
-	if len(secret) < minimumSecretLength {
-		return nil, fmt.Errorf("snapshotd: JWT secret is %d bytes, want at least %d", len(secret), minimumSecretLength)
-	}
-	if bytes.Equal(secret, make([]byte, len(secret))) {
-		return nil, errors.New("snapshotd: JWT secret cannot be all zeros")
-	}
-	return append([]byte(nil), secret...), nil
 }
 
 func validateQuery(query Query) error {

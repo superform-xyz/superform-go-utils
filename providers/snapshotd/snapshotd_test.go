@@ -2,7 +2,6 @@ package snapshotd
 
 import (
 	"context"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -11,15 +10,11 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
-	"time"
 
 	"github.com/ethereum/go-ethereum/common"
-	"github.com/golang-jwt/jwt/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
-
-const testSecretHex = "0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20"
 
 var (
 	testStrategy = common.HexToAddress("0x1111111111111111111111111111111111111111")
@@ -42,17 +37,13 @@ func TestNewValidatesConfiguration(t *testing.T) {
 		opts []Option
 		want string
 	}{
-		{name: "missing base URL", opts: []Option{WithJWTSecretHex(testSecretHex)}, want: "base URL is required"},
-		{name: "invalid base URL", opts: []Option{WithBaseURL("not a URL"), WithJWTSecretHex(testSecretHex)}, want: "invalid base URL"},
-		{name: "base URL with userinfo", opts: []Option{WithBaseURL("https://user:pass@snapshot.example"), WithJWTSecretHex(testSecretHex)}, want: "invalid base URL"},
-		{name: "base URL with query", opts: []Option{WithBaseURL("https://snapshot.example?tenant=a"), WithJWTSecretHex(testSecretHex)}, want: "invalid base URL"},
-		{name: "base URL with empty query", opts: []Option{WithBaseURL("https://snapshot.example?"), WithJWTSecretHex(testSecretHex)}, want: "invalid base URL"},
-		{name: "base URL with fragment", opts: []Option{WithBaseURL("https://snapshot.example#fragment"), WithJWTSecretHex(testSecretHex)}, want: "invalid base URL"},
-		{name: "missing secret", opts: []Option{WithBaseURL("https://snapshot.example")}, want: "JWT secret is required"},
-		{name: "malformed secret", opts: []Option{WithBaseURL("https://snapshot.example"), WithJWTSecretHex("xyz")}, want: "decode JWT secret"},
-		{name: "short secret", opts: []Option{WithBaseURL("https://snapshot.example"), WithJWTSecretHex("01")}, want: "want at least 32"},
-		{name: "zero secret", opts: []Option{WithBaseURL("https://snapshot.example"), WithJWTSecretHex(strings.Repeat("00", 32))}, want: "cannot be all zeros"},
-		{name: "invalid timeout", opts: []Option{WithBaseURL("https://snapshot.example"), WithJWTSecretHex(testSecretHex), WithTimeout(0)}, want: "timeout must be positive"},
+		{name: "missing base URL", want: "base URL is required"},
+		{name: "invalid base URL", opts: []Option{WithBaseURL("not a URL")}, want: "invalid base URL"},
+		{name: "base URL with userinfo", opts: []Option{WithBaseURL("https://user:pass@snapshot.example")}, want: "invalid base URL"},
+		{name: "base URL with query", opts: []Option{WithBaseURL("https://snapshot.example?tenant=a")}, want: "invalid base URL"},
+		{name: "base URL with empty query", opts: []Option{WithBaseURL("https://snapshot.example?")}, want: "invalid base URL"},
+		{name: "base URL with fragment", opts: []Option{WithBaseURL("https://snapshot.example#fragment")}, want: "invalid base URL"},
+		{name: "invalid timeout", opts: []Option{WithBaseURL("https://snapshot.example"), WithTimeout(0)}, want: "timeout must be positive"},
 	}
 
 	for _, tt := range tests {
@@ -64,24 +55,16 @@ func TestNewValidatesConfiguration(t *testing.T) {
 	}
 }
 
-func TestNewAcceptsPrefixedSecretAndTrimsBaseURL(t *testing.T) {
-	got, err := New(
-		WithBaseURL(" https://snapshot.example/ "),
-		WithJWTSecretHex("0x"+testSecretHex),
-	)
+func TestNewTrimsBaseURL(t *testing.T) {
+	got, err := New(WithBaseURL(" https://snapshot.example/ "))
 	require.NoError(t, err)
 	concrete := got.(*client)
 	assert.Equal(t, "https://snapshot.example", concrete.baseURL)
-	assert.Len(t, concrete.jwtSecret, 32)
-	assert.Empty(t, concrete.jwtSecretHex)
 }
 
 func TestEndpointPreservesBaseURLPathPrefix(t *testing.T) {
 	block := uint64(12345)
-	got := mustNew(t,
-		WithBaseURL("https://snapshot.example/internal/snapshot/"),
-		WithJWTSecretHex(testSecretHex),
-	)
+	got := mustNew(t, WithBaseURL("https://snapshot.example/internal/snapshot/"))
 
 	endpoint := got.(*client).endpoint("pps", Query{
 		ChainID:     8453,
@@ -91,10 +74,7 @@ func TestEndpointPreservesBaseURLPathPrefix(t *testing.T) {
 	assert.Equal(t, "https://snapshot.example/internal/snapshot/v1/pps/8453/0x1111111111111111111111111111111111111111?block=12345", endpoint)
 }
 
-func TestGetPPSBuildsRequestAndMintsJWT(t *testing.T) {
-	fixedNow := time.Unix(1_800_000_000, 0)
-	secret, err := hex.DecodeString(testSecretHex)
-	require.NoError(t, err)
+func TestGetPPSBuildsPublicRequest(t *testing.T) {
 	requests := make(chan capturedHTTPRequest, 1)
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -111,9 +91,7 @@ func TestGetPPSBuildsRequestAndMintsJWT(t *testing.T) {
 
 	client := mustNew(t,
 		WithBaseURL(server.URL),
-		WithJWTSecretHex(testSecretHex),
 		WithHTTPClient(server.Client()),
-		withClock(func() time.Time { return fixedNow }),
 	)
 	result, err := client.GetPPS(context.Background(), Query{ChainID: 8453, Strategy: testStrategy})
 	require.NoError(t, err)
@@ -124,7 +102,7 @@ func TestGetPPSBuildsRequestAndMintsJWT(t *testing.T) {
 	assert.Equal(t, "/v1/pps/8453/0x1111111111111111111111111111111111111111", request.path)
 	assert.Empty(t, request.rawQuery)
 	assert.Equal(t, "application/json", request.accept)
-	assertJWT(t, request.authorization, secret, fixedNow)
+	assert.Empty(t, request.authorization)
 }
 
 func TestGetPPSIncludesPinnedBlock(t *testing.T) {
@@ -135,7 +113,7 @@ func TestGetPPSIncludesPinnedBlock(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := mustNew(t, WithBaseURL(server.URL), WithJWTSecretHex(testSecretHex), WithHTTPClient(server.Client()))
+	client := mustNew(t, WithBaseURL(server.URL), WithHTTPClient(server.Client()))
 	_, err := client.GetPPS(context.Background(), Query{ChainID: 1, Strategy: testStrategy, BlockNumber: &block})
 	require.NoError(t, err)
 }
@@ -168,7 +146,7 @@ func TestGetAllocationDecodesResponse(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := mustNew(t, WithBaseURL(server.URL), WithJWTSecretHex(testSecretHex), WithHTTPClient(server.Client()))
+	client := mustNew(t, WithBaseURL(server.URL), WithHTTPClient(server.Client()))
 	allocation, err := client.GetAllocation(context.Background(), Query{ChainID: 1, Strategy: testStrategy, BlockNumber: &block})
 	require.NoError(t, err)
 	require.NotNil(t, allocation)
@@ -182,37 +160,6 @@ func TestGetAllocationDecodesResponse(t *testing.T) {
 	assert.True(t, allocation.Sources[0].Active)
 }
 
-func TestEachRequestMintsCurrentJWT(t *testing.T) {
-	var calls atomic.Int64
-	times := []time.Time{time.Unix(1_800_000_000, 0), time.Unix(1_800_000_001, 0)}
-	secret, err := hex.DecodeString(testSecretHex)
-	require.NoError(t, err)
-	authorizations := make(chan string, len(times))
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		calls.Add(1)
-		authorizations <- r.Header.Get("Authorization")
-		_, _ = fmt.Fprint(w, `{"pps":"1"}`)
-	}))
-	defer server.Close()
-
-	var clockCalls atomic.Int64
-	client := mustNew(t,
-		WithBaseURL(server.URL),
-		WithJWTSecretHex(testSecretHex),
-		WithHTTPClient(server.Client()),
-		withClock(func() time.Time {
-			return times[int(clockCalls.Add(1)-1)]
-		}),
-	)
-	query := Query{ChainID: 1, Strategy: testStrategy}
-	for _, issuedAt := range times {
-		_, err = client.GetPPS(context.Background(), query)
-		require.NoError(t, err)
-		assertJWT(t, <-authorizations, secret, issuedAt)
-	}
-	assert.Equal(t, int64(2), calls.Load())
-}
-
 func TestHTTPError(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusBadGateway)
@@ -220,7 +167,7 @@ func TestHTTPError(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := mustNew(t, WithBaseURL(server.URL), WithJWTSecretHex(testSecretHex), WithHTTPClient(server.Client()))
+	client := mustNew(t, WithBaseURL(server.URL), WithHTTPClient(server.Client()))
 	_, err := client.GetPPS(context.Background(), Query{ChainID: 1, Strategy: testStrategy})
 	require.Error(t, err)
 	assert.ErrorIs(t, err, ErrUpstream)
@@ -239,7 +186,7 @@ func TestUnauthorizedPlainTextResponse(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := mustNew(t, WithBaseURL(server.URL), WithJWTSecretHex(testSecretHex), WithHTTPClient(server.Client()))
+	client := mustNew(t, WithBaseURL(server.URL), WithHTTPClient(server.Client()))
 	_, err := client.GetPPS(context.Background(), Query{ChainID: 1, Strategy: testStrategy})
 	require.Error(t, err)
 	assert.ErrorIs(t, err, ErrUnauthorized)
@@ -253,7 +200,7 @@ func TestResponseValidation(t *testing.T) {
 		}))
 		defer server.Close()
 
-		client := mustNew(t, WithBaseURL(server.URL), WithJWTSecretHex(testSecretHex), WithHTTPClient(server.Client()))
+		client := mustNew(t, WithBaseURL(server.URL), WithHTTPClient(server.Client()))
 		_, err := client.GetPPS(context.Background(), Query{ChainID: 1, Strategy: testStrategy})
 		assert.ErrorIs(t, err, ErrInvalidResponse)
 	})
@@ -264,7 +211,7 @@ func TestResponseValidation(t *testing.T) {
 		}))
 		defer server.Close()
 
-		client := mustNew(t, WithBaseURL(server.URL), WithJWTSecretHex(testSecretHex), WithHTTPClient(server.Client()))
+		client := mustNew(t, WithBaseURL(server.URL), WithHTTPClient(server.Client()))
 		_, err := client.GetAllocation(context.Background(), Query{ChainID: 1, Strategy: testStrategy})
 		assert.ErrorIs(t, err, ErrInvalidResponse)
 	})
@@ -275,7 +222,7 @@ func TestResponseValidation(t *testing.T) {
 		}))
 		defer server.Close()
 
-		client := mustNew(t, WithBaseURL(server.URL), WithJWTSecretHex(testSecretHex), WithHTTPClient(server.Client()))
+		client := mustNew(t, WithBaseURL(server.URL), WithHTTPClient(server.Client()))
 		_, err := client.GetPPS(context.Background(), Query{ChainID: 1, Strategy: testStrategy})
 		assert.ErrorIs(t, err, ErrInvalidResponse)
 		assert.ErrorContains(t, err, "decode response")
@@ -289,7 +236,7 @@ func TestResponseValidation(t *testing.T) {
 		}))
 		defer server.Close()
 
-		client := mustNew(t, WithBaseURL(server.URL), WithJWTSecretHex(testSecretHex), WithHTTPClient(server.Client()))
+		client := mustNew(t, WithBaseURL(server.URL), WithHTTPClient(server.Client()))
 		_, err := client.GetPPS(context.Background(), Query{ChainID: 1, Strategy: testStrategy})
 		assert.ErrorIs(t, err, ErrInvalidResponse)
 		assert.ErrorContains(t, err, "response body exceeds")
@@ -309,7 +256,6 @@ func TestResponseReadErrorPreservesCauses(t *testing.T) {
 	})}
 	client := mustNew(t,
 		WithBaseURL("https://snapshot.example"),
-		WithJWTSecretHex(testSecretHex),
 		WithHTTPClient(httpClient),
 	)
 
@@ -360,7 +306,7 @@ func TestGetAllocationNormalizesInactiveSourceWithoutAmounts(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := mustNew(t, WithBaseURL(server.URL), WithJWTSecretHex(testSecretHex), WithHTTPClient(server.Client()))
+	client := mustNew(t, WithBaseURL(server.URL), WithHTTPClient(server.Client()))
 	allocation, err := client.GetAllocation(context.Background(), Query{ChainID: 1, Strategy: testStrategy})
 	require.NoError(t, err)
 	require.Len(t, allocation.Sources, 1)
@@ -368,7 +314,7 @@ func TestGetAllocationNormalizesInactiveSourceWithoutAmounts(t *testing.T) {
 }
 
 func TestQueryValidationAndContextCancellation(t *testing.T) {
-	client := mustNew(t, WithBaseURL("https://snapshot.example"), WithJWTSecretHex(testSecretHex))
+	client := mustNew(t, WithBaseURL("https://snapshot.example"))
 	_, err := client.GetPPS(context.Background(), Query{Strategy: testStrategy})
 	assert.ErrorContains(t, err, "chain ID must be positive")
 	_, err = client.GetPPS(context.Background(), Query{ChainID: 1})
@@ -389,26 +335,11 @@ func TestDefaultClientDoesNotRetry(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := mustNew(t, WithBaseURL(server.URL), WithJWTSecretHex(testSecretHex))
+	client := mustNew(t, WithBaseURL(server.URL))
 	_, err := client.GetPPS(context.Background(), Query{ChainID: 1, Strategy: testStrategy})
 	require.Error(t, err)
 	assert.ErrorIs(t, err, ErrUpstream)
 	assert.Equal(t, int64(1), hits.Load())
-}
-
-func assertJWT(t *testing.T, authorization string, secret []byte, issuedAt time.Time) {
-	t.Helper()
-	require.True(t, strings.HasPrefix(authorization, "Bearer "))
-	raw := strings.TrimPrefix(authorization, "Bearer ")
-	token, err := jwt.Parse(raw, func(token *jwt.Token) (any, error) {
-		require.Equal(t, jwt.SigningMethodHS256, token.Method)
-		return secret, nil
-	}, jwt.WithValidMethods([]string{jwt.SigningMethodHS256.Alg()}), jwt.WithoutClaimsValidation())
-	require.NoError(t, err)
-	require.True(t, token.Valid)
-	claims, ok := token.Claims.(jwt.MapClaims)
-	require.True(t, ok)
-	assert.Equal(t, float64(issuedAt.Unix()), claims["iat"])
 }
 
 func mustNew(t *testing.T, opts ...Option) Client {
