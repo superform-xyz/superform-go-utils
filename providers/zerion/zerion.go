@@ -133,7 +133,7 @@ func (z *zerion) GetWalletPositions(ctx context.Context, address string, req Wal
 		return nil, err
 	}
 	if resp.Body != nil {
-		defer resp.Body.Close()
+		defer func() { _ = resp.Body.Close() }()
 	}
 	if err := decodeResponse(resp); err != nil {
 		return nil, err

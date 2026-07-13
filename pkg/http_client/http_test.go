@@ -40,7 +40,7 @@ func TestClientGet(t *testing.T) {
 	client := NewClientBuilder().BuildClient()
 	resp, err := client.Get(server.URL)
 	require.NoError(t, err)
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
 }
@@ -55,7 +55,7 @@ func TestClientGetWithContext(t *testing.T) {
 	client := NewClientBuilder().BuildClient()
 	resp, err := client.GetWithContext(context.Background(), server.URL)
 	require.NoError(t, err)
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
 }
@@ -80,7 +80,7 @@ func TestClientPostJSONWithContext(t *testing.T) {
 		client := NewClientBuilder().BuildClient()
 		resp, err := client.PostJSONWithContext(context.Background(), server.URL, payload)
 		require.NoError(t, err)
-		defer resp.Body.Close()
+		defer func() { _ = resp.Body.Close() }()
 
 		assert.Equal(t, http.StatusOK, resp.StatusCode)
 	})
@@ -107,7 +107,7 @@ func TestClientPost(t *testing.T) {
 	client := NewClientBuilder().BuildClient()
 	resp, err := client.Post(server.URL, "text/plain", strings.NewReader("hello"))
 	require.NoError(t, err)
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	assert.Equal(t, http.StatusCreated, resp.StatusCode)
 }
@@ -207,7 +207,7 @@ func TestTransportRoundTrip(t *testing.T) {
 		resp, err := transport.RoundTrip(req)
 		require.NoError(t, err)
 		assert.Equal(t, http.StatusOK, resp.StatusCode)
-		resp.Body.Close()
+		require.NoError(t, resp.Body.Close())
 	})
 
 	t.Run("successful 2xx request (201)", func(t *testing.T) {
@@ -228,7 +228,7 @@ func TestTransportRoundTrip(t *testing.T) {
 		resp, err := transport.RoundTrip(req)
 		require.NoError(t, err)
 		assert.Equal(t, http.StatusCreated, resp.StatusCode)
-		resp.Body.Close()
+		require.NoError(t, resp.Body.Close())
 	})
 
 	t.Run("auth headers set", func(t *testing.T) {
@@ -251,7 +251,7 @@ func TestTransportRoundTrip(t *testing.T) {
 
 		resp, err := transport.RoundTrip(req)
 		require.NoError(t, err)
-		resp.Body.Close()
+		require.NoError(t, resp.Body.Close())
 	})
 
 	t.Run("nil BaseTransport uses default", func(t *testing.T) {
@@ -270,7 +270,7 @@ func TestTransportRoundTrip(t *testing.T) {
 
 		resp, err := transport.RoundTrip(req)
 		require.NoError(t, err)
-		resp.Body.Close()
+		require.NoError(t, resp.Body.Close())
 	})
 
 	t.Run("rate limit 429 retries then fails", func(t *testing.T) {
@@ -392,7 +392,7 @@ func TestTransportRoundTrip(t *testing.T) {
 		resp, err := transport.RoundTrip(req)
 		require.NoError(t, err)
 		assert.Equal(t, http.StatusOK, resp.StatusCode)
-		resp.Body.Close()
+		require.NoError(t, resp.Body.Close())
 	})
 
 	t.Run("other 4xx status retries", func(t *testing.T) {
@@ -462,7 +462,7 @@ func TestGetResponseBodyError(t *testing.T) {
 
 		resp, err := http.Get(server.URL)
 		require.NoError(t, err)
-		defer resp.Body.Close()
+		defer func() { _ = resp.Body.Close() }()
 
 		result := getResponseBodyError(resp)
 		assert.Equal(t, "error details", result)
@@ -476,7 +476,7 @@ func TestGetResponseBodyError(t *testing.T) {
 
 		resp, err := http.Get(server.URL)
 		require.NoError(t, err)
-		defer resp.Body.Close()
+		defer func() { _ = resp.Body.Close() }()
 
 		result := getResponseBodyError(resp)
 		assert.Equal(t, "request failed, no response", result)

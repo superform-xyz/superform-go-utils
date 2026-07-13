@@ -122,7 +122,7 @@ func (o *odos) postJSON(ctx context.Context, path string, requestBody any, opera
 		return fmt.Errorf("failed to call %s API: %w", operation, err)
 	}
 	if resp.Body != nil {
-		defer resp.Body.Close()
+		defer func() { _ = resp.Body.Close() }()
 	}
 
 	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {

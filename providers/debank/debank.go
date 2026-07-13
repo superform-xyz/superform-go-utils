@@ -132,7 +132,7 @@ func (d *debank) GetToken(ctx context.Context, chainID uint64, tokenAddress comm
 	}
 
 	if resp.Body != nil {
-		defer resp.Body.Close()
+		defer func() { _ = resp.Body.Close() }()
 	}
 	if err := decodeDebankResponse(resp, "debank token"); err != nil {
 		return nil, err
@@ -176,7 +176,7 @@ func (d *debank) GetHistoryTokenPrice(ctx context.Context, chainID uint64, token
 	}
 
 	if resp.Body != nil {
-		defer resp.Body.Close()
+		defer func() { _ = resp.Body.Close() }()
 	}
 	if err := decodeDebankResponse(resp, "debank token history"); err != nil {
 		return nil, err
@@ -212,7 +212,7 @@ func (d *debank) GetTokenBalances(ctx context.Context, address string, filterTok
 	}
 
 	if resp.Body != nil {
-		defer resp.Body.Close()
+		defer func() { _ = resp.Body.Close() }()
 	}
 	if err := decodeDebankResponse(resp, "debank token list"); err != nil {
 		return nil, err
@@ -251,7 +251,7 @@ func (d *debank) GetTokens(ctx context.Context, chainID uint64, tokenAddresses [
 		return nil, errors.Wrap(err, "failed to get token list by ids")
 	}
 	if resp.Body != nil {
-		defer resp.Body.Close()
+		defer func() { _ = resp.Body.Close() }()
 	}
 	if err := decodeDebankResponse(resp, "debank token/list_by_ids"); err != nil {
 		return nil, err
@@ -283,7 +283,7 @@ func (d *debank) GetAccountCredits(ctx context.Context) (AccountCredits, error) 
 		return AccountCredits{}, errors.Wrap(err, "failed to get account credits")
 	}
 	if resp.Body != nil {
-		defer resp.Body.Close()
+		defer func() { _ = resp.Body.Close() }()
 	}
 	if err := decodeDebankResponse(resp, "debank account/units"); err != nil {
 		return AccountCredits{}, err
@@ -308,7 +308,7 @@ func (d *debank) GetProtocolPortfolios(ctx context.Context, userAddress string) 
 		return nil, errors.Wrap(err, "failed to get complex protocols")
 	}
 	if resp.Body != nil {
-		defer resp.Body.Close()
+		defer func() { _ = resp.Body.Close() }()
 	}
 	if err := decodeDebankResponse(resp, "debank all_complex_protocol_list"); err != nil {
 		return nil, err
