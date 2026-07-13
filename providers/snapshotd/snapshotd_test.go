@@ -3,6 +3,7 @@ package snapshotd
 import (
 	"context"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -27,6 +28,14 @@ var (
 	testOracle   = common.HexToAddress("0x4444444444444444444444444444444444444444")
 )
 
+type capturedHTTPRequest struct {
+	method        string
+	path          string
+	rawQuery      string
+	accept        string
+	authorization string
+}
+
 func TestNewValidatesConfiguration(t *testing.T) {
 	tests := []struct {
 		name string
@@ -35,6 +44,10 @@ func TestNewValidatesConfiguration(t *testing.T) {
 	}{
 		{name: "missing base URL", opts: []Option{WithJWTSecretHex(testSecretHex)}, want: "base URL is required"},
 		{name: "invalid base URL", opts: []Option{WithBaseURL("not a URL"), WithJWTSecretHex(testSecretHex)}, want: "invalid base URL"},
+		{name: "base URL with userinfo", opts: []Option{WithBaseURL("https://user:pass@snapshot.example"), WithJWTSecretHex(testSecretHex)}, want: "invalid base URL"},
+		{name: "base URL with query", opts: []Option{WithBaseURL("https://snapshot.example?tenant=a"), WithJWTSecretHex(testSecretHex)}, want: "invalid base URL"},
+		{name: "base URL with empty query", opts: []Option{WithBaseURL("https://snapshot.example?"), WithJWTSecretHex(testSecretHex)}, want: "invalid base URL"},
+		{name: "base URL with fragment", opts: []Option{WithBaseURL("https://snapshot.example#fragment"), WithJWTSecretHex(testSecretHex)}, want: "invalid base URL"},
 		{name: "missing secret", opts: []Option{WithBaseURL("https://snapshot.example")}, want: "JWT secret is required"},
 		{name: "malformed secret", opts: []Option{WithBaseURL("https://snapshot.example"), WithJWTSecretHex("xyz")}, want: "decode JWT secret"},
 		{name: "short secret", opts: []Option{WithBaseURL("https://snapshot.example"), WithJWTSecretHex("01")}, want: "want at least 32"},
@@ -63,17 +76,35 @@ func TestNewAcceptsPrefixedSecretAndTrimsBaseURL(t *testing.T) {
 	assert.Empty(t, concrete.jwtSecretHex)
 }
 
+func TestEndpointPreservesBaseURLPathPrefix(t *testing.T) {
+	block := uint64(12345)
+	got := mustNew(t,
+		WithBaseURL("https://snapshot.example/internal/snapshot/"),
+		WithJWTSecretHex(testSecretHex),
+	)
+
+	endpoint := got.(*client).endpoint("pps", Query{
+		ChainID:     8453,
+		Strategy:    testStrategy,
+		BlockNumber: &block,
+	})
+	assert.Equal(t, "https://snapshot.example/internal/snapshot/v1/pps/8453/0x1111111111111111111111111111111111111111?block=12345", endpoint)
+}
+
 func TestGetPPSBuildsRequestAndMintsJWT(t *testing.T) {
 	fixedNow := time.Unix(1_800_000_000, 0)
 	secret, err := hex.DecodeString(testSecretHex)
 	require.NoError(t, err)
+	requests := make(chan capturedHTTPRequest, 1)
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		assert.Equal(t, http.MethodGet, r.Method)
-		assert.Equal(t, "/v1/pps/8453/0x1111111111111111111111111111111111111111", r.URL.Path)
-		assert.Empty(t, r.URL.RawQuery)
-		assert.Equal(t, "application/json", r.Header.Get("Accept"))
-		assertJWT(t, r.Header.Get("Authorization"), secret, fixedNow)
+		requests <- capturedHTTPRequest{
+			method:        r.Method,
+			path:          r.URL.Path,
+			rawQuery:      r.URL.RawQuery,
+			accept:        r.Header.Get("Accept"),
+			authorization: r.Header.Get("Authorization"),
+		}
 		_, _ = fmt.Fprint(w, `{"pps":"1003942771999791660"}`)
 	}))
 	defer server.Close()
@@ -88,6 +119,12 @@ func TestGetPPSBuildsRequestAndMintsJWT(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, result)
 	assert.Equal(t, "1003942771999791660", result.PPS)
+	request := <-requests
+	assert.Equal(t, http.MethodGet, request.method)
+	assert.Equal(t, "/v1/pps/8453/0x1111111111111111111111111111111111111111", request.path)
+	assert.Empty(t, request.rawQuery)
+	assert.Equal(t, "application/json", request.accept)
+	assertJWT(t, request.authorization, secret, fixedNow)
 }
 
 func TestGetPPSIncludesPinnedBlock(t *testing.T) {
@@ -150,9 +187,10 @@ func TestEachRequestMintsCurrentJWT(t *testing.T) {
 	times := []time.Time{time.Unix(1_800_000_000, 0), time.Unix(1_800_000_001, 0)}
 	secret, err := hex.DecodeString(testSecretHex)
 	require.NoError(t, err)
+	authorizations := make(chan string, len(times))
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		index := int(calls.Add(1) - 1)
-		assertJWT(t, r.Header.Get("Authorization"), secret, times[index])
+		calls.Add(1)
+		authorizations <- r.Header.Get("Authorization")
 		_, _ = fmt.Fprint(w, `{"pps":"1"}`)
 	}))
 	defer server.Close()
@@ -167,10 +205,11 @@ func TestEachRequestMintsCurrentJWT(t *testing.T) {
 		}),
 	)
 	query := Query{ChainID: 1, Strategy: testStrategy}
-	_, err = client.GetPPS(context.Background(), query)
-	require.NoError(t, err)
-	_, err = client.GetPPS(context.Background(), query)
-	require.NoError(t, err)
+	for _, issuedAt := range times {
+		_, err = client.GetPPS(context.Background(), query)
+		require.NoError(t, err)
+		assertJWT(t, <-authorizations, secret, issuedAt)
+	}
 	assert.Equal(t, int64(2), calls.Load())
 }
 
@@ -240,6 +279,8 @@ func TestResponseValidation(t *testing.T) {
 		_, err := client.GetPPS(context.Background(), Query{ChainID: 1, Strategy: testStrategy})
 		assert.ErrorIs(t, err, ErrInvalidResponse)
 		assert.ErrorContains(t, err, "decode response")
+		var syntaxErr *json.SyntaxError
+		assert.ErrorAs(t, err, &syntaxErr)
 	})
 
 	t.Run("oversized body", func(t *testing.T) {
@@ -253,6 +294,56 @@ func TestResponseValidation(t *testing.T) {
 		assert.ErrorIs(t, err, ErrInvalidResponse)
 		assert.ErrorContains(t, err, "response body exceeds")
 	})
+}
+
+func TestResponseReadErrorPreservesCauses(t *testing.T) {
+	readErr := errors.New("read response failed")
+	httpClient := &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Status:     "200 OK",
+			Header:     make(http.Header),
+			Body:       errorReadCloser{err: readErr},
+			Request:    request,
+		}, nil
+	})}
+	client := mustNew(t,
+		WithBaseURL("https://snapshot.example"),
+		WithJWTSecretHex(testSecretHex),
+		WithHTTPClient(httpClient),
+	)
+
+	_, err := client.GetPPS(context.Background(), Query{ChainID: 1, Strategy: testStrategy})
+	require.Error(t, err)
+	assert.ErrorIs(t, err, ErrInvalidResponse)
+	assert.ErrorIs(t, err, readErr)
+}
+
+func TestHTTPErrorReadErrorPreservesCauses(t *testing.T) {
+	readErr := errors.New("read error response failed")
+	err := decodeHTTPError(&http.Response{
+		StatusCode: http.StatusBadGateway,
+		Body:       errorReadCloser{err: readErr},
+	})
+
+	assert.ErrorIs(t, err, ErrUpstream)
+	assert.ErrorIs(t, err, readErr)
+	var httpErr *HTTPError
+	assert.ErrorAs(t, err, &httpErr)
+}
+
+func TestValidateAndNormalizeAllocationReportsFirstFieldDeterministically(t *testing.T) {
+	query := Query{ChainID: 1, Strategy: testStrategy}
+	allocation := &Allocation{
+		Strategy: testStrategy,
+		ChainID:  1,
+		Asset:    testAsset,
+	}
+
+	for i := 0; i < 100; i++ {
+		err := validateAndNormalizeAllocation(query, allocation)
+		assert.EqualError(t, err, "snapshotd: totalAssets is required: snapshotd invalid response")
+	}
 }
 
 func TestGetAllocationNormalizesInactiveSourceWithoutAmounts(t *testing.T) {
@@ -331,4 +422,22 @@ func mustNew(t *testing.T, opts ...Option) Client {
 func TestHTTPErrorUnwrapsSentinel(t *testing.T) {
 	err := &HTTPError{StatusCode: http.StatusNotFound, Err: ErrNotFound}
 	assert.True(t, errors.Is(err, ErrNotFound))
+}
+
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (fn roundTripFunc) RoundTrip(request *http.Request) (*http.Response, error) {
+	return fn(request)
+}
+
+type errorReadCloser struct {
+	err error
+}
+
+func (r errorReadCloser) Read([]byte) (int, error) {
+	return 0, r.err
+}
+
+func (errorReadCloser) Close() error {
+	return nil
 }

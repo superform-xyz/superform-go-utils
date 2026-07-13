@@ -146,7 +146,7 @@ func (c *client) GetAllocation(ctx context.Context, query Query) (*Allocation, e
 	if err := c.getJSON(ctx, c.endpoint("allocation", query), &result); err != nil {
 		return nil, fmt.Errorf("snapshotd get allocation: %w", err)
 	}
-	if err := validateAllocation(query, &result); err != nil {
+	if err := validateAndNormalizeAllocation(query, &result); err != nil {
 		return nil, err
 	}
 	return &result, nil
@@ -194,10 +194,10 @@ func (c *client) getJSON(ctx context.Context, endpoint string, out any) error {
 	}
 	body, err := readBounded(resp.Body, maxResponseBody)
 	if err != nil {
-		return fmt.Errorf("read response: %w (%v)", ErrInvalidResponse, err)
+		return fmt.Errorf("read response: %w (%w)", ErrInvalidResponse, err)
 	}
 	if err := json.Unmarshal(body, out); err != nil {
-		return fmt.Errorf("decode response: %w (%v)", ErrInvalidResponse, err)
+		return fmt.Errorf("decode response: %w (%w)", ErrInvalidResponse, err)
 	}
 	return nil
 }
@@ -214,7 +214,13 @@ func validateBaseURL(baseURL string) error {
 		return errors.New("snapshotd: base URL is required")
 	}
 	parsed, err := url.ParseRequestURI(baseURL)
-	if err != nil || parsed.Host == "" || (parsed.Scheme != "http" && parsed.Scheme != "https") {
+	if err != nil ||
+		parsed.Host == "" ||
+		(parsed.Scheme != "http" && parsed.Scheme != "https") ||
+		parsed.User != nil ||
+		parsed.RawQuery != "" ||
+		parsed.ForceQuery ||
+		parsed.Fragment != "" {
 		return fmt.Errorf("snapshotd: invalid base URL %q", baseURL)
 	}
 	return nil
@@ -248,7 +254,7 @@ func validateQuery(query Query) error {
 	return nil
 }
 
-func validateAllocation(query Query, allocation *Allocation) error {
+func validateAndNormalizeAllocation(query Query, allocation *Allocation) error {
 	if allocation.Strategy != query.Strategy {
 		return fmt.Errorf("snapshotd: allocation strategy %s does not match request %s: %w", allocation.Strategy.Hex(), query.Strategy.Hex(), ErrInvalidResponse)
 	}
@@ -261,12 +267,16 @@ func validateAllocation(query Query, allocation *Allocation) error {
 	if allocation.Asset == (common.Address{}) {
 		return fmt.Errorf("snapshotd: allocation asset is required: %w", ErrInvalidResponse)
 	}
-	for field, value := range map[string]string{
-		"totalAssets": allocation.TotalAssets,
-		"totalSupply": allocation.TotalSupply,
-		"idleBalance": allocation.IdleBalance,
-	} {
-		if err := validateDecimal(field, value); err != nil {
+	fields := [...]struct {
+		name  string
+		value string
+	}{
+		{name: "totalAssets", value: allocation.TotalAssets},
+		{name: "totalSupply", value: allocation.TotalSupply},
+		{name: "idleBalance", value: allocation.IdleBalance},
+	}
+	for _, field := range fields {
+		if err := validateDecimal(field.name, field.value); err != nil {
 			return err
 		}
 	}
@@ -313,7 +323,7 @@ func decodeHTTPError(resp *http.Response) error {
 		return &HTTPError{
 			StatusCode: resp.StatusCode,
 			Message:    readErr.Error(),
-			Err:        httpErrorSentinel(resp.StatusCode),
+			Err:        errors.Join(httpErrorSentinel(resp.StatusCode), readErr),
 		}
 	}
 
