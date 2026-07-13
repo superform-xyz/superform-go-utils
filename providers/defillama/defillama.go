@@ -253,7 +253,7 @@ func (d *defiLlama) get(ctx context.Context, path string, out *CoinsResponse) er
 		return errors.Wrap(err, "failed to get prices")
 	}
 	if resp.Body != nil {
-		defer resp.Body.Close()
+		defer func() { _ = resp.Body.Close() }()
 	}
 	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 512))

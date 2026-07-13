@@ -224,7 +224,7 @@ func (o *oneInch) getJSON(ctx context.Context, path, operation string, responseB
 		return fmt.Errorf("failed to get %s: %w", operation, err)
 	}
 	if resp.Body != nil {
-		defer resp.Body.Close()
+		defer func() { _ = resp.Body.Close() }()
 	}
 
 	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {

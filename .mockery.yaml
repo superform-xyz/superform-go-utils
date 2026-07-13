@@ -41,6 +41,11 @@ packages:
       dir: "providers/oneinch/mocks"
     interfaces:
       Client:
+  github.com/superform-xyz/superform-go-utils/providers/snapshotd:
+    config:
+      dir: "providers/snapshotd/mocks"
+    interfaces:
+      Client:
   github.com/superform-xyz/superform-go-utils/providers/odos:
     config:
       dir: "providers/odos/mocks"

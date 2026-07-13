@@ -104,7 +104,7 @@ func (o *openOcean) GetSwap(ctx context.Context, req SwapRequest) (*Swap, error)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get OpenOcean swap quote: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
