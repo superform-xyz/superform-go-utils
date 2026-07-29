@@ -66,8 +66,3 @@ packages:
       dir: "providers/yahoo/mocks"
     interfaces:
       Client:
-  github.com/superform-xyz/superform-go-utils/providers/wallstreetodds:
-    config:
-      dir: "providers/wallstreetodds/mocks"
-    interfaces:
-      Client:
