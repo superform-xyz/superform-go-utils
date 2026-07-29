@@ -2,8 +2,11 @@ package sec
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"strconv"
+	"strings"
 )
 
 var ErrTickerNotFound = errors.New("sec ticker not found")
@@ -29,6 +32,48 @@ type CompanyFacts struct {
 	CIK        uint64                            `json:"cik"`
 	EntityName string                            `json:"entityName"`
 	Facts      map[string]map[string]CompanyFact `json:"facts"`
+}
+
+// UnmarshalJSON accepts both number and zero-padded string CIK values, which
+// are both emitted by the SEC Company Facts API.
+func (f *CompanyFacts) UnmarshalJSON(data []byte) error {
+	var payload struct {
+		CIK        json.RawMessage                   `json:"cik"`
+		EntityName string                            `json:"entityName"`
+		Facts      map[string]map[string]CompanyFact `json:"facts"`
+	}
+	if err := json.Unmarshal(data, &payload); err != nil {
+		return err
+	}
+
+	cik, err := parseCIK(payload.CIK)
+	if err != nil {
+		return err
+	}
+	f.CIK = cik
+	f.EntityName = payload.EntityName
+	f.Facts = payload.Facts
+	return nil
+}
+
+func parseCIK(raw json.RawMessage) (uint64, error) {
+	value := strings.TrimSpace(string(raw))
+	if len(value) >= 2 && value[0] == '"' && value[len(value)-1] == '"' {
+		unquoted, err := strconv.Unquote(value)
+		if err != nil {
+			return 0, fmt.Errorf("decode SEC CIK: %w", err)
+		}
+		value = unquoted
+	}
+	if value == "" || value == "null" {
+		return 0, nil
+	}
+
+	cik, err := strconv.ParseUint(value, 10, 64)
+	if err != nil {
+		return 0, fmt.Errorf("decode SEC CIK %q: %w", value, err)
+	}
+	return cik, nil
 }
 
 // CompanyFact contains one XBRL fact and its values grouped by unit.
