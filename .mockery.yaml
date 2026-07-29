@@ -41,6 +41,11 @@ packages:
       dir: "providers/oneinch/mocks"
     interfaces:
       Client:
+  github.com/superform-xyz/superform-go-utils/providers/sec:
+    config:
+      dir: "providers/sec/mocks"
+    interfaces:
+      Client:
   github.com/superform-xyz/superform-go-utils/providers/snapshotd:
     config:
       dir: "providers/snapshotd/mocks"
@@ -59,5 +64,10 @@ packages:
   github.com/superform-xyz/superform-go-utils/providers/yahoo:
     config:
       dir: "providers/yahoo/mocks"
+    interfaces:
+      Client:
+  github.com/superform-xyz/superform-go-utils/providers/wallstreetodds:
+    config:
+      dir: "providers/wallstreetodds/mocks"
     interfaces:
       Client:
