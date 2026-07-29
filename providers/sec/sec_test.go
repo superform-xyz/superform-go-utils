@@ -205,3 +205,19 @@ func TestGetCompanyFactsFormatsCIK(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, uint64(42), facts.CIK)
 }
+
+func TestGetCompanyFactsAcceptsStringCIK(t *testing.T) {
+	t.Parallel()
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		require.Equal(t, "/api/xbrl/companyfacts/CIK0001876042.json", r.URL.Path)
+		_, _ = fmt.Fprint(w, `{"cik":"0001876042","entityName":"Circle Internet Group, Inc.","facts":{}}`)
+	}))
+	defer server.Close()
+
+	client := mustNew(t, WithDataBaseURL(server.URL), WithHTTPClient(server.Client()))
+	facts, err := client.GetCompanyFacts(context.Background(), 1_876_042)
+	require.NoError(t, err)
+	require.Equal(t, uint64(1_876_042), facts.CIK)
+	require.Equal(t, "Circle Internet Group, Inc.", facts.EntityName)
+}
