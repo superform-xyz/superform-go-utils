@@ -178,4 +178,12 @@ func TestChainHelpers(t *testing.T) {
 	slug, ok := ChainSlug(constants.OptimismChainID)
 	require.True(t, ok)
 	assert.Equal(t, "optimism", slug)
+
+	slug, ok = ChainSlug(constants.RobinhoodChainID)
+	require.True(t, ok)
+	assert.Equal(t, "robinhood", slug)
+
+	chainID, ok = ChainID("Robinhood")
+	require.True(t, ok)
+	assert.Equal(t, constants.RobinhoodChainID, chainID)
 }

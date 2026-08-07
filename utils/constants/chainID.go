@@ -39,4 +39,6 @@ const (
 	FlareChainID = uint64(14)
 	// StableChainID is the chain ID for Stable
 	StableChainID = uint64(988)
+	// RobinhoodChainID is the chain ID for Robinhood Chain
+	RobinhoodChainID = uint64(4663)
 )

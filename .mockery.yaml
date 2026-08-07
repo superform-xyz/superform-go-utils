@@ -51,11 +51,6 @@ packages:
       dir: "providers/snapshotd/mocks"
     interfaces:
       Client:
-  github.com/superform-xyz/superform-go-utils/providers/odos:
-    config:
-      dir: "providers/odos/mocks"
-    interfaces:
-      Client:
   github.com/superform-xyz/superform-go-utils/providers/zerion:
     config:
       dir: "providers/zerion/mocks"

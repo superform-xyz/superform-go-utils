@@ -29,6 +29,7 @@ var chainSlugByChainID = map[uint64]string{
 	constants.AvalancheChainID: "avalanche",
 	constants.UnichainChainID:  "unichain",
 	constants.HyperEvmChainID:  "hyperevm",
+	constants.RobinhoodChainID: "robinhood",
 }
 
 var chainIDBySlug = map[string]uint64{
@@ -41,6 +42,7 @@ var chainIDBySlug = map[string]uint64{
 	"avalanche":           constants.AvalancheChainID,
 	"unichain":            constants.UnichainChainID,
 	"hyperevm":            constants.HyperEvmChainID,
+	"robinhood":           constants.RobinhoodChainID,
 }
 
 type WalletPositionsRequest struct {

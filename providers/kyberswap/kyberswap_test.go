@@ -379,6 +379,11 @@ func TestSupportedChains(t *testing.T) {
 
 	assert.Contains(t, client.SupportedChains(), constants.MainnetChainID)
 	assert.Contains(t, client.SupportedChains(), constants.MantleChainID)
+	assert.Contains(t, client.SupportedChains(), constants.RobinhoodChainID)
+
+	chainName, err := chainToName(constants.RobinhoodChainID)
+	require.NoError(t, err)
+	assert.Equal(t, "robinhood", chainName)
 }
 
 type buildResponseFixture struct {
