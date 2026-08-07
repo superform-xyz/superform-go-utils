@@ -440,3 +440,19 @@ func TestDefiLlama_Integration(t *testing.T) {
 		assert.Nil(t, coin)
 	})
 }
+
+func TestRobinhoodChain(t *testing.T) {
+	dl := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		assert.Contains(t, r.URL.Path, "/prices/current/robinhood:")
+		jsonOK(t, w, CoinsResponse{
+			Coins: map[string]Coin{
+				"robinhood:" + usdcAddr.Hex(): {Price: 1.0, Decimals: 6, Symbol: "USDG"},
+			},
+		})
+	})
+
+	coin, err := dl.GetCoin(context.Background(), constants.RobinhoodChainID, usdcAddr)
+	require.NoError(t, err)
+	assert.Equal(t, constants.RobinhoodChainID, coin.ChainId)
+	assert.Contains(t, dl.SupportedChains(), constants.RobinhoodChainID)
+}

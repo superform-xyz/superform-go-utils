@@ -24,6 +24,7 @@ var chainIDToName = map[uint64]string{
 	constants.BeraChainID:      "berachain",
 	constants.UnichainChainID:  "unichain",
 	constants.HyperEvmChainID:  "hyperevm",
+	constants.RobinhoodChainID: "robinhood",
 }
 
 // RouteRequest contains the inputs for KyberSwap's GET /routes endpoint.
