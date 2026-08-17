@@ -352,8 +352,74 @@ func TestGetUserRewards_RequiresChainID(t *testing.T) {
 	_, err := c.GetUserRewards(context.Background(), "0xUser", 0)
 
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "requires chain id")
+	assert.Contains(t, err.Error(), "non-zero chain id")
 	assert.False(t, requested, "a zero chain id must not reach Merkl")
+}
+
+func TestGetUserRewardsForChains_RequiresAtLeastOneChain(t *testing.T) {
+	t.Parallel()
+
+	var requested bool
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		requested = true
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`[]`))
+	}))
+	defer srv.Close()
+
+	c := mustNew(t, WithBaseURL(srv.URL), WithHTTPClient(srv.Client()))
+	_, err := c.GetUserRewardsForChains(context.Background(), "0xUser", nil)
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "at least one chain id")
+	assert.False(t, requested, "an empty chain list must not reach Merkl")
+}
+
+// Merkl accepts a repeated chainId parameter, so several chains cost one request.
+func TestGetUserRewardsForChains_SendsOneRequestWithRepeatedChainID(t *testing.T) {
+	t.Parallel()
+
+	var requests int
+	var gotChainIDs []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests++
+		gotChainIDs = r.URL.Query()["chainId"]
+		require.Equal(t, "/v4/users/0xUser/rewards", r.URL.Path)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`[
+			{"chain": {"id": 1, "name": "Ethereum"}, "rewards": []},
+			{"chain": {"id": 8453, "name": "Base"}, "rewards": []}
+		]`))
+	}))
+	defer srv.Close()
+
+	c := mustNew(t, WithBaseURL(srv.URL), WithHTTPClient(srv.Client()))
+	rewards, err := c.GetUserRewardsForChains(context.Background(), "0xUser", []uint64{8453, 1, 8453})
+
+	require.NoError(t, err)
+	assert.Equal(t, 1, requests, "several chains must not fan out into several requests")
+	// Deduplicated and ordered so the request is stable across calls.
+	assert.Equal(t, []string{"1", "8453"}, gotChainIDs)
+	require.Len(t, rewards, 2)
+	assert.Equal(t, 8453, rewards[1].Chain.ID)
+}
+
+func TestGetUserRewardsDelegatesToSingleChain(t *testing.T) {
+	t.Parallel()
+
+	var gotChainIDs []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotChainIDs = r.URL.Query()["chainId"]
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`[]`))
+	}))
+	defer srv.Close()
+
+	c := mustNew(t, WithBaseURL(srv.URL), WithHTTPClient(srv.Client()))
+	_, err := c.GetUserRewards(context.Background(), "0xUser", 42161)
+
+	require.NoError(t, err)
+	assert.Equal(t, []string{"42161"}, gotChainIDs)
 }
 
 func TestNon2xx(t *testing.T) {
