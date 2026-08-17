@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -43,8 +44,10 @@ type Client interface {
 	ListAllOpportunities(ctx context.Context, query OpportunityQuery) ([]Opportunity, error)
 	// CountOpportunities returns the number of opportunities matching the provided filters.
 	CountOpportunities(ctx context.Context, query OpportunityCountQuery) (int, error)
-	// GetUserRewards retrieves claimable rewards for a user, optionally filtered by chain.
+	// GetUserRewards retrieves claimable rewards for a user on one chain.
 	GetUserRewards(ctx context.Context, user string, chainID uint64) ([]UserRewardsChain, error)
+	// GetUserRewardsForChains retrieves claimable rewards for a user across several chains in one request.
+	GetUserRewardsForChains(ctx context.Context, user string, chainIDs []uint64) ([]UserRewardsChain, error)
 	// GetLiveRoots retrieves the current live Merkl root per chain.
 	GetLiveRoots(ctx context.Context) (map[string]RootInfo, error)
 	Close() error
@@ -205,22 +208,57 @@ func (c *client) CountOpportunities(ctx context.Context, query OpportunityCountQ
 	return count, nil
 }
 
-// GetUserRewards retrieves claimable rewards for a user, optionally filtered by chain.
+// GetUserRewards retrieves claimable rewards for a user on one chain.
+//
+// chainID is required: Merkl rejects this endpoint with HTTP 400 when chainId
+// is absent, and there is no all-chain form.
 func (c *client) GetUserRewards(ctx context.Context, user string, chainID uint64) ([]UserRewardsChain, error) {
+	return c.GetUserRewardsForChains(ctx, user, []uint64{chainID})
+}
+
+// GetUserRewardsForChains retrieves claimable rewards for a user across several
+// chains in a single request. Merkl accepts a repeated chainId parameter and
+// returns one group per requested chain that has rewards.
+//
+// At least one chain id is required. Merkl fails the whole request with HTTP 400
+// when any listed chain is unsupported, so pass only chains Merkl covers.
+func (c *client) GetUserRewardsForChains(
+	ctx context.Context,
+	user string,
+	chainIDs []uint64,
+) ([]UserRewardsChain, error) {
 	user = strings.TrimSpace(user)
 	if user == "" {
 		return nil, fmt.Errorf("merkl user rewards requires user address")
 	}
+	if len(chainIDs) == 0 {
+		return nil, fmt.Errorf("merkl user rewards requires at least one chain id: the endpoint has no all-chain form")
+	}
+
+	// Deduplicate and order so the request, and any cache built on it, is stable.
+	unique := make([]uint64, 0, len(chainIDs))
+	seen := make(map[uint64]struct{}, len(chainIDs))
+	for _, chainID := range chainIDs {
+		if chainID == 0 {
+			return nil, fmt.Errorf("merkl user rewards requires a non-zero chain id")
+		}
+		if _, duplicate := seen[chainID]; duplicate {
+			continue
+		}
+		seen[chainID] = struct{}{}
+		unique = append(unique, chainID)
+	}
+	slices.Sort(unique)
 
 	values := url.Values{}
-	if chainID != 0 {
-		values.Set("chainId", strconv.FormatUint(chainID, 10))
+	for _, chainID := range unique {
+		values.Add("chainId", strconv.FormatUint(chainID, 10))
 	}
 
 	var out []UserRewardsChain
 	path := fmt.Sprintf(userRewardsPath, url.PathEscape(user))
 	if err := c.getJSON(ctx, path, values, &out); err != nil {
-		return nil, fmt.Errorf("merkl user rewards: %w", err)
+		return nil, fmt.Errorf("merkl user rewards for chains %v: %w", unique, err)
 	}
 	return out, nil
 }
