@@ -205,17 +205,22 @@ func (c *client) CountOpportunities(ctx context.Context, query OpportunityCountQ
 	return count, nil
 }
 
-// GetUserRewards retrieves claimable rewards for a user, optionally filtered by chain.
+// GetUserRewards retrieves claimable rewards for a user on one chain.
+//
+// chainID is required. Merkl rejects this endpoint with HTTP 400 when chainId
+// is absent and offers no all-chain form, so callers that want several chains
+// must request each one and merge the results.
 func (c *client) GetUserRewards(ctx context.Context, user string, chainID uint64) ([]UserRewardsChain, error) {
 	user = strings.TrimSpace(user)
 	if user == "" {
 		return nil, fmt.Errorf("merkl user rewards requires user address")
 	}
+	if chainID == 0 {
+		return nil, fmt.Errorf("merkl user rewards requires chain id: the endpoint has no all-chain form")
+	}
 
 	values := url.Values{}
-	if chainID != 0 {
-		values.Set("chainId", strconv.FormatUint(chainID, 10))
-	}
+	values.Set("chainId", strconv.FormatUint(chainID, 10))
 
 	var out []UserRewardsChain
 	path := fmt.Sprintf(userRewardsPath, url.PathEscape(user))

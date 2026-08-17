@@ -335,6 +335,27 @@ func TestGetUserRewards_RequiresUser(t *testing.T) {
 	assert.Contains(t, err.Error(), "requires user address")
 }
 
+// Merkl answers this endpoint with HTTP 400 when chainId is absent, so a zero
+// chain id must fail here rather than issue a request that cannot succeed.
+func TestGetUserRewards_RequiresChainID(t *testing.T) {
+	t.Parallel()
+
+	var requested bool
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		requested = true
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`[]`))
+	}))
+	defer srv.Close()
+
+	c := mustNew(t, WithBaseURL(srv.URL))
+	_, err := c.GetUserRewards(context.Background(), "0xUser", 0)
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "requires chain id")
+	assert.False(t, requested, "a zero chain id must not reach Merkl")
+}
+
 func TestNon2xx(t *testing.T) {
 	t.Parallel()
 
