@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -23,6 +24,50 @@ func (e *errorReader) Read(p []byte) (n int, err error) {
 
 func (e *errorReader) Close() error {
 	return nil
+}
+
+// trackedBody records whether a response body was read to EOF and closed.
+type trackedBody struct {
+	reader  *strings.Reader
+	closed  int
+	drained bool
+}
+
+func (b *trackedBody) Read(p []byte) (int, error) {
+	n, err := b.reader.Read(p)
+	if errors.Is(err, io.EOF) {
+		b.drained = true
+	}
+	return n, err
+}
+
+func (b *trackedBody) Close() error {
+	b.closed++
+	return nil
+}
+
+// recordingTransport serves one status per attempt, repeating the last entry
+// once the sequence is exhausted, and keeps every body it handed out. Attempts
+// are sequential inside a single RoundTrip, so no locking is needed.
+type recordingTransport struct {
+	statuses []int
+	body     string
+	bodies   []*trackedBody
+}
+
+func (rt *recordingTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	status := rt.statuses[min(len(rt.bodies), len(rt.statuses)-1)]
+
+	body := &trackedBody{reader: strings.NewReader(rt.body)}
+	rt.bodies = append(rt.bodies, body)
+
+	return &http.Response{
+		StatusCode: status,
+		Status:     http.StatusText(status),
+		Body:       body,
+		Header:     make(http.Header),
+		Request:    req,
+	}, nil
 }
 
 func TestNewClientBuilder(t *testing.T) {
@@ -449,6 +494,139 @@ func TestTransportRoundTrip(t *testing.T) {
 		_, err = transport.RoundTrip(req)
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "no response")
+	})
+}
+
+func TestTransportRoundTripBodyHandling(t *testing.T) {
+	const errBody = `{"error":"nope"}`
+
+	t.Run("non-2xx responses are drained and closed on every attempt", func(t *testing.T) {
+		tests := []struct {
+			name         string
+			statusCode   int
+			wantAttempts int
+			wantSentinel error
+		}{
+			{"429 rate limited retries", http.StatusTooManyRequests, 3, ErrRateLimited},
+			{"401 unauthorized no retry", http.StatusUnauthorized, 1, ErrUnauthorized},
+			{"403 forbidden no retry", http.StatusForbidden, 1, ErrUnauthorized},
+			{"400 bad request no retry", http.StatusBadRequest, 1, nil},
+			{"500 server error retries", http.StatusInternalServerError, 3, nil},
+			{"other 4xx retries", http.StatusMethodNotAllowed, 3, nil},
+		}
+
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				base := &recordingTransport{statuses: []int{tt.statusCode}, body: errBody}
+				transport := &Transport{
+					BaseTransport: base,
+					MaxRetries:    3,
+					RetryDelay:    time.Millisecond,
+				}
+
+				req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, "http://example.invalid", nil)
+				require.NoError(t, err)
+
+				resp, err := transport.RoundTrip(req)
+				require.Error(t, err)
+				assert.Nil(t, resp)
+
+				require.Len(t, base.bodies, tt.wantAttempts)
+				for i, body := range base.bodies {
+					assert.True(t, body.drained, "attempt %d: body was not drained", i)
+					assert.Equal(t, 1, body.closed, "attempt %d: body was not closed exactly once", i)
+				}
+
+				// Every non-2xx response carries its status through the error, so
+				// callers can classify it without parsing the message.
+				statusCode, gotBody, ok := ResponseStatus(err)
+				require.True(t, ok)
+				assert.Equal(t, tt.statusCode, statusCode)
+				assert.Equal(t, errBody, gotBody)
+
+				if tt.wantSentinel != nil {
+					assert.ErrorIs(t, err, tt.wantSentinel)
+				}
+			})
+		}
+	})
+
+	t.Run("body of a failed attempt is closed before the next attempt overwrites it", func(t *testing.T) {
+		base := &recordingTransport{
+			statuses: []int{http.StatusTooManyRequests, http.StatusOK},
+			body:     errBody,
+		}
+		transport := &Transport{
+			BaseTransport: base,
+			MaxRetries:    3,
+			RetryDelay:    time.Millisecond,
+		}
+
+		req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, "http://example.invalid", nil)
+		require.NoError(t, err)
+
+		resp, err := transport.RoundTrip(req)
+		require.NoError(t, err)
+		require.Len(t, base.bodies, 2)
+
+		assert.True(t, base.bodies[0].drained)
+		assert.Equal(t, 1, base.bodies[0].closed, "the 429 body leaked when the retry replaced it")
+
+		// The successful response is the caller's to close.
+		assert.Equal(t, 0, base.bodies[1].closed)
+		require.NoError(t, resp.Body.Close())
+		assert.Equal(t, 1, base.bodies[1].closed)
+	})
+
+	t.Run("429 leaves the connection reusable", func(t *testing.T) {
+		var (
+			mu    sync.Mutex
+			conns = make(map[string]int)
+		)
+
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			mu.Lock()
+			conns[r.RemoteAddr]++
+			mu.Unlock()
+
+			w.WriteHeader(http.StatusTooManyRequests)
+			_, _ = w.Write([]byte(errBody))
+		}))
+		defer server.Close()
+
+		base := &http.Transport{MaxIdleConns: maxIdleConns, MaxIdleConnsPerHost: maxIdleConnsPerHost}
+		defer base.CloseIdleConnections()
+
+		transport := &Transport{
+			BaseTransport: base,
+			MaxRetries:    3,
+			// Comfortably longer than the transport's asynchronous hand-off of a
+			// drained connection back to the idle pool.
+			RetryDelay: 20 * time.Millisecond,
+		}
+
+		req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, server.URL, nil)
+		require.NoError(t, err)
+
+		_, err = transport.RoundTrip(req)
+		require.Error(t, err)
+		assert.ErrorIs(t, err, ErrRateLimited)
+		assert.Contains(t, err.Error(), "rate limit exceeded")
+
+		statusCode, gotBody, ok := ResponseStatus(err)
+		require.True(t, ok)
+		assert.Equal(t, http.StatusTooManyRequests, statusCode)
+		assert.Equal(t, errBody, gotBody)
+
+		mu.Lock()
+		defer mu.Unlock()
+
+		attempts := 0
+		for _, count := range conns {
+			attempts += count
+		}
+		assert.Equal(t, 3, attempts)
+		assert.Len(t, conns, 1, "each retry opened a new connection instead of reusing one: %v", conns)
 	})
 }
 
