@@ -64,6 +64,14 @@ type Client struct {
 	*http.Client
 }
 
+// ErrRateLimited and ErrUnauthorized classify the responses the transport
+// treats specially. Both wrap a *statusError, so ResponseStatus still reports
+// the status code and body alongside them.
+var (
+	ErrRateLimited  = errors.New("request failed, rate limit exceeded")
+	ErrUnauthorized = errors.New("request failed, unauthorized")
+)
+
 type statusError struct {
 	statusCode int
 	body       string
@@ -251,31 +259,32 @@ func (t *Transport) RoundTrip(req *http.Request) (*http.Response, error) {
 			retryReq.Header.Set(t.AuthHeaderKey, t.AuthHeaderVal)
 		}
 
-		if resp, err = t.BaseTransport.RoundTrip(retryReq); err != nil {
-			return fmt.Errorf("request failed: %w", err), true
+		attemptResp, rtErr := t.BaseTransport.RoundTrip(retryReq)
+		if rtErr != nil {
+			return fmt.Errorf("request failed: %w", rtErr), true
 		}
 
-		if resp.StatusCode >= http.StatusOK && resp.StatusCode < http.StatusMultipleChoices {
+		if attemptResp.StatusCode >= http.StatusOK && attemptResp.StatusCode < http.StatusMultipleChoices {
+			// Only a response handed back to the caller keeps an open body; the
+			// caller owns closing it from here.
+			resp = attemptResp
 			return nil, false
 		}
 
-		if resp.StatusCode == http.StatusTooManyRequests {
-			return fmt.Errorf("request failed, rate limit exceeded"), true
-		}
+		// Every non-2xx path consumes the body so the connection goes back to the
+		// idle pool instead of being dropped mid-response on the next attempt.
+		statusErr := newStatusError(attemptResp)
 
-		if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
-			return fmt.Errorf("request failed, unauthorized"), false
+		switch attemptResp.StatusCode {
+		case http.StatusTooManyRequests:
+			return fmt.Errorf("%w: %w", ErrRateLimited, statusErr), true
+		case http.StatusUnauthorized, http.StatusForbidden:
+			return fmt.Errorf("%w: %w", ErrUnauthorized, statusErr), false
+		case http.StatusBadRequest:
+			return statusErr, false
+		default:
+			return statusErr, true
 		}
-
-		if resp.StatusCode == http.StatusBadRequest {
-			return newStatusError(resp), false
-		}
-
-		if resp.StatusCode >= http.StatusInternalServerError {
-			return newStatusError(resp), true
-		}
-
-		return newStatusError(resp), true
 	}, t.MaxRetries, t.RetryDelay)
 	if err != nil {
 		return nil, err
