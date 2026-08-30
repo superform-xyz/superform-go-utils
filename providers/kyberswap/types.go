@@ -33,6 +33,7 @@ type RouteRequest struct {
 	TokenIn             string
 	TokenOut            string
 	AmountIn            string
+	ExcludedSources     []string
 	OnlyScalableSources bool
 }
 

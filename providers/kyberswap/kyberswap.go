@@ -93,6 +93,9 @@ func (k *kyberswap) GetRoute(ctx context.Context, req RouteRequest) (*Route, err
 	v.Set("tokenIn", req.TokenIn)
 	v.Set("tokenOut", req.TokenOut)
 	v.Set("amountIn", req.AmountIn)
+	if len(req.ExcludedSources) > 0 {
+		v.Set("excludedSources", strings.Join(req.ExcludedSources, ","))
+	}
 	if req.OnlyScalableSources {
 		v.Set("onlyScalableSources", "true")
 	}
