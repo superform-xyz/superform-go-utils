@@ -15,7 +15,12 @@ import (
 	"github.com/superform-xyz/superform-go-utils/pkg/http_client"
 )
 
-const zerionBaseURL = "https://api.zerion.io/v1"
+const (
+	zerionBaseURL = "https://api.zerion.io/v1"
+
+	// IncludedHiddenChainsHeader opts Zerion requests into hidden chains.
+	IncludedHiddenChainsHeader = "X-Include-Hidden-Chains"
+)
 
 type Zerion interface {
 	HealthCheck(ctx context.Context) error
@@ -25,12 +30,13 @@ type Zerion interface {
 }
 
 type zerion struct {
-	apiKey     string
-	baseURL    string
-	client     *http_client.Client
-	timeout    *time.Duration
-	maxRetries *uint
-	retryDelay *time.Duration
+	apiKey       string
+	baseURL      string
+	client       *http_client.Client
+	timeout      *time.Duration
+	maxRetries   *uint
+	retryDelay   *time.Duration
+	hiddenChains string
 }
 
 var _ Zerion = (*zerion)(nil)
@@ -57,6 +63,29 @@ func WithRetry(maxRetries uint, retryDelay time.Duration) Option {
 		z.maxRetries = &maxRetries
 		z.retryDelay = &retryDelay
 	}
+}
+
+// WithIncludedHiddenChains adds Zerion's X-Include-Hidden-Chains header to
+// requests made by this client. Hidden chains are opt-in so shared consumers
+// do not change behavior unless they explicitly enable them.
+func WithIncludedHiddenChains(chainSlugs ...string) Option {
+	return func(z *zerion) {
+		z.hiddenChains = ChainFilterFromSlugs(chainSlugs)
+	}
+}
+
+// SetIncludedHiddenChains applies Zerion's hidden-chain request header. An
+// empty chain list removes the header from the request.
+func SetIncludedHiddenChains(req *http.Request, chainSlugs ...string) {
+	if req == nil {
+		return
+	}
+	value := ChainFilterFromSlugs(chainSlugs)
+	if value == "" {
+		req.Header.Del(IncludedHiddenChainsHeader)
+		return
+	}
+	req.Header.Set(IncludedHiddenChainsHeader, value)
 }
 
 func New(apiKey string, opts ...Option) (Zerion, error) {
@@ -164,6 +193,9 @@ func (z *zerion) newRequest(ctx context.Context, path string) (*http.Request, er
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, path, nil)
 	if err != nil {
 		return nil, err
+	}
+	if z.hiddenChains != "" {
+		SetIncludedHiddenChains(req, strings.Split(z.hiddenChains, ",")...)
 	}
 	return req, nil
 }
