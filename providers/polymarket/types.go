@@ -386,7 +386,8 @@ type OpenOrderPage struct {
 	Count      int         `json:"count,omitempty"`
 }
 
-// Validate checks a complete open-order page for one maker.
+// Validate checks a complete open-order page. A nonempty maker additionally
+// restricts it to that wallet; authenticated API pages may span multiple wallets.
 func (p OpenOrderPage) Validate(maker string) error {
 	if len(p.Data) > 2_000 {
 		return errors.New("open-order page exceeds bounds")
@@ -420,12 +421,12 @@ type OpenOrder struct {
 	OrderType       string   `json:"order_type"`
 }
 
-// Validate checks an open order belongs to maker and has bounded identifiers.
+// Validate checks bounded identifiers and, when supplied, an expected maker.
 func (o OpenOrder) Validate(maker string) error {
 	switch {
 	case validateOrderID(o.ID) != nil:
 		return errors.New("order id is invalid")
-	case !isAddress(o.MakerAddress) || !strings.EqualFold(o.MakerAddress, maker):
+	case !isAddress(o.MakerAddress) || (maker != "" && !strings.EqualFold(o.MakerAddress, maker)):
 		return errors.New("maker address mismatch")
 	case !isHash(o.Market), !protocol.IsCanonicalUint256(o.AssetID, false):
 		return errors.New("market or asset id is invalid")

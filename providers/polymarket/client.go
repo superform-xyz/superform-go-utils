@@ -38,8 +38,8 @@ var (
 	ErrRateLimited = errors.New("polymarket: rate limited")
 	// ErrTradingDisabled means new order submission was not explicitly enabled.
 	ErrTradingDisabled = errors.New("polymarket: new order submission is disabled")
-	// ErrCredentialsMissing means valid maker-bound L2 credentials are unavailable.
-	ErrCredentialsMissing = errors.New("polymarket: maker-bound credentials are unavailable")
+	// ErrCredentialsMissing means valid API-signer L2 credentials are unavailable.
+	ErrCredentialsMissing = errors.New("polymarket: API-signer credentials are unavailable")
 	// ErrOrderNotFound means the provider has no order with the requested ID.
 	ErrOrderNotFound = errors.New("polymarket: order not found")
 )
@@ -75,7 +75,8 @@ func IsDefinitiveSubmissionRejection(err error) bool {
 		providerError.StatusCode < http.StatusInternalServerError && providerError.StatusCode != http.StatusRequestTimeout
 }
 
-// Credentials are maker-bound L2 HMAC credentials provisioned out of band.
+// Credentials authenticate the API signer, which can differ from the wallet
+// holding funds and from the signer field inside a POLY_1271 order.
 type Credentials struct {
 	Address    string `json:"address"`
 	APIKey     string `json:"api_key"`
@@ -92,7 +93,7 @@ func (Credentials) MarshalJSON() ([]byte, error) {
 	return []byte(`"[redacted polymarket credentials]"`), nil
 }
 
-// Validate checks a complete maker-bound L2 credential without exposing its values.
+// Validate checks complete L2 credentials without exposing their values.
 func (c Credentials) Validate() error {
 	switch {
 	case !isAddress(c.Address):
@@ -296,9 +297,6 @@ func (c *client) PostOrder(ctx context.Context, credentials Credentials, order S
 	if err := order.Validate(); err != nil {
 		return nil, err
 	}
-	if !strings.EqualFold(credentials.Address, order.Order.Signer.Hex()) {
-		return nil, errors.New("polymarket: credential address must equal order signer")
-	}
 	payload := order.payload(credentials.APIKey)
 	var placement OrderPlacement
 	if err := c.do(ctx, http.MethodPost, "/order", nil, payload, &credentials, maxPrivateBodyBytes, &placement); err != nil {
@@ -334,7 +332,7 @@ func (c *client) ListOpenOrders(ctx context.Context, credentials Credentials, fi
 	if err := c.do(ctx, http.MethodGet, "/data/orders", query, nil, &credentials, maxPrivateBodyBytes, &page); err != nil {
 		return nil, err
 	}
-	if err := page.Validate(credentials.Address); err != nil {
+	if err := page.Validate(""); err != nil {
 		return nil, fmt.Errorf("polymarket: invalid open-orders response: %w", err)
 	}
 	return &page, nil
@@ -356,7 +354,7 @@ func (c *client) GetOrder(ctx context.Context, credentials Credentials, orderID 
 		}
 		return nil, err
 	}
-	if err := order.Validate(credentials.Address); err != nil {
+	if err := order.Validate(""); err != nil {
 		return nil, fmt.Errorf("polymarket: invalid order response: %w", err)
 	}
 	if !strings.EqualFold(order.ID, orderID) {

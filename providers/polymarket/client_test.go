@@ -54,7 +54,7 @@ func TestNewRequiresHTTPSOriginAndDefaultsSubmissionOff(t *testing.T) {
 	require.ErrorIs(t, err, ErrTradingDisabled)
 }
 
-func TestCredentialsAreStrictMakerBoundAndRedacted(t *testing.T) {
+func TestCredentialsAreValidatedAndRedacted(t *testing.T) {
 	credentials := testCredentials()
 	require.NoError(t, credentials.Validate())
 	encoded, err := json.Marshal(credentials)
