@@ -21,11 +21,13 @@ func mustNew(t *testing.T, apiKey string, opts ...Option) Zerion {
 	return c
 }
 
-func newTestClient(t *testing.T, handler http.HandlerFunc) *zerion {
+func newTestClient(t *testing.T, handler http.HandlerFunc, opts ...Option) *zerion {
 	t.Helper()
 	server := httptest.NewServer(handler)
 	t.Cleanup(server.Close)
-	client, ok := mustNew(t, "test-key", WithBaseURL(server.URL), WithRetry(0, time.Millisecond)).(*zerion)
+	clientOpts := []Option{WithBaseURL(server.URL), WithRetry(0, time.Millisecond)}
+	clientOpts = append(clientOpts, opts...)
+	client, ok := mustNew(t, "test-key", clientOpts...).(*zerion)
 	require.True(t, ok)
 	return client
 }
@@ -72,6 +74,7 @@ func TestGetWalletPositions(t *testing.T) {
 	z := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
 		assert.Equal(t, "/wallets/0xabc/positions/", r.URL.Path)
 		assert.Equal(t, "Basic test-key", r.Header.Get("Authorization"))
+		assert.Empty(t, r.Header.Get(IncludedHiddenChainsHeader))
 		assert.Equal(t, "arbitrum,base,ethereum", r.URL.Query().Get("filter[chain_ids]"))
 		assert.Equal(t, WalletPositionsNoFilter, r.URL.Query().Get("filter[positions]"))
 		assert.Equal(t, WalletPositionsOnlyNonTrash, r.URL.Query().Get("filter[trash]"))
@@ -125,6 +128,17 @@ func TestGetWalletPositions(t *testing.T) {
 	require.Len(t, positions[0].Attributes.FungibleInfo.Implementations, 1)
 	assert.Equal(t, constants.BaseChainID, positions[0].Attributes.FungibleInfo.Implementations[0].ChainID)
 	assert.Equal(t, "0x1111111111111111111111111111111111111111", positions[0].Attributes.FungibleInfo.Implementations[0].Address.Hex())
+}
+
+func TestGetWalletPositionsIncludesConfiguredHiddenChains(t *testing.T) {
+	z := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, "flare", r.Header.Get(IncludedHiddenChainsHeader))
+		jsonOK(t, w, WalletPositionsResponse{})
+	}, WithIncludedHiddenChains("flare"))
+
+	positions, err := z.GetWalletPositions(context.Background(), "0xabc", WalletPositionsRequest{})
+	require.NoError(t, err)
+	assert.Empty(t, positions)
 }
 
 func TestGetWalletPositionsAllowsExplicitChainSlugs(t *testing.T) {
@@ -186,4 +200,13 @@ func TestChainHelpers(t *testing.T) {
 	chainID, ok = ChainID("Robinhood")
 	require.True(t, ok)
 	assert.Equal(t, constants.RobinhoodChainID, chainID)
+
+	slug, ok = ChainSlug(constants.FlareChainID)
+	require.True(t, ok)
+	assert.Equal(t, "flare", slug)
+
+	chainID, ok = ChainID("Flare")
+	require.True(t, ok)
+	assert.Equal(t, constants.FlareChainID, chainID)
+	assert.Contains(t, SupportedChains(), constants.FlareChainID)
 }
