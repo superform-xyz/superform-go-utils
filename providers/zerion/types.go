@@ -138,74 +138,92 @@ type WalletPositionsResponse struct {
 }
 
 type Position struct {
-	ChainID    uint64             `json:"-"`
-	Attributes PositionAttributes `json:"attributes"`
+	ID            string                `json:"id"`
+	ChainID       uint64                `json:"-"`
+	Attributes    PositionAttributes    `json:"attributes"`
+	Relationships PositionRelationships `json:"relationships"`
 }
 
 func (p *Position) UnmarshalJSON(data []byte) error {
-	type auxPosition struct {
-		Attributes    PositionAttributes    `json:"attributes"`
-		Relationships PositionRelationships `json:"relationships"`
-	}
-
-	aux := &auxPosition{}
-	if err := json.Unmarshal(data, aux); err != nil {
+	type positionJSON Position
+	var decoded positionJSON
+	if err := json.Unmarshal(data, &decoded); err != nil {
 		return err
 	}
 
-	*p = Position{
-		ChainID:    aux.Relationships.Chain.Data.ChainID,
-		Attributes: aux.Attributes,
-	}
+	*p = Position(decoded)
+	p.ChainID = p.Relationships.Chain.Data.ChainID
 
 	return nil
 }
 
 type PositionAttributes struct {
-	Protocol     string         `json:"protocol"`
-	PoolAddress  common.Address `json:"-"`
-	PositionType string         `json:"position_type"`
-	Quantity     Quantity       `json:"quantity"`
-	Value        float64        `json:"value"`
-	Price        float64        `json:"price"`
-	FungibleInfo *FungibleInfo  `json:"fungible_info"`
-	Flags        *PositionFlags `json:"flags"`
-	UpdatedAt    string         `json:"updated_at"`
+	Name           string         `json:"name"`
+	Parent         *string        `json:"parent"`
+	Protocol       string         `json:"protocol"`
+	ProtocolModule string         `json:"protocol_module"`
+	PoolAddress    common.Address `json:"-"`
+	GroupID        string         `json:"group_id"`
+	PositionType   string         `json:"position_type"`
+	Quantity       Quantity       `json:"quantity"`
+	Value          float64        `json:"value"`
+	Price          float64        `json:"price"`
+	FungibleInfo   *FungibleInfo  `json:"fungible_info"`
+	Flags          *PositionFlags `json:"flags"`
+	UpdatedAt      string         `json:"updated_at"`
+	UpdatedAtBlock *uint64        `json:"updated_at_block"`
+	Receipt        *Receipt       `json:"receipt"`
+
+	// HasValue and HasPrice distinguish a decoded numeric zero from a null or
+	// absent field. Value and Price retain their existing float64 API.
+	HasValue bool `json:"-"`
+	HasPrice bool `json:"-"`
 }
 
 func (a *PositionAttributes) UnmarshalJSON(data []byte) error {
-	type auxAttributes struct {
-		Protocol     string         `json:"protocol"`
-		PoolAddress  string         `json:"pool_address"`
-		PositionType string         `json:"position_type"`
-		Quantity     Quantity       `json:"quantity"`
-		Value        float64        `json:"value"`
-		Price        float64        `json:"price"`
-		FungibleInfo *FungibleInfo  `json:"fungible_info"`
-		Flags        *PositionFlags `json:"flags"`
-		UpdatedAt    string         `json:"updated_at"`
+	type attributesJSON PositionAttributes
+	var decoded attributesJSON
+	aux := struct {
+		*attributesJSON
+		PoolAddress string   `json:"pool_address"`
+		Value       *float64 `json:"value"`
+		Price       *float64 `json:"price"`
+	}{
+		attributesJSON: &decoded,
 	}
-
-	aux := &auxAttributes{}
-	if err := json.Unmarshal(data, aux); err != nil {
+	if err := json.Unmarshal(data, &aux); err != nil {
 		return err
 	}
 
-	*a = PositionAttributes{
-		Protocol:     aux.Protocol,
-		PositionType: aux.PositionType,
-		Quantity:     aux.Quantity,
-		Value:        aux.Value,
-		Price:        aux.Price,
-		FungibleInfo: aux.FungibleInfo,
-		Flags:        aux.Flags,
-		UpdatedAt:    aux.UpdatedAt,
+	*a = PositionAttributes(decoded)
+	if aux.Value != nil {
+		a.Value = *aux.Value
+		a.HasValue = true
+	}
+	if aux.Price != nil {
+		a.Price = *aux.Price
+		a.HasPrice = true
 	}
 	if strings.TrimSpace(aux.PoolAddress) != "" {
 		a.PoolAddress = common.HexToAddress(aux.PoolAddress)
 	}
 
 	return nil
+}
+
+// Receipt identifies the instrument representing a protocol position. Its
+// fungible metadata describes a share or LP token; the position's Quantity
+// still describes FungibleInfo, not the receipt's share balance.
+// Zerion also supports NFT receipts for concentrated-liquidity positions.
+type Receipt struct {
+	FungibleInfo *FungibleInfo   `json:"fungible_info"`
+	NFTInfo      *ReceiptNFTInfo `json:"nft_info"`
+}
+
+type ReceiptNFTInfo struct {
+	ChainSlug       string `json:"chain_id"`
+	ContractAddress string `json:"contract_address"`
+	TokenID         string `json:"token_id"`
 }
 
 type PositionFlags struct {
@@ -247,10 +265,16 @@ func (q *Quantity) UnmarshalJSON(data []byte) error {
 }
 
 type FungibleInfo struct {
+	ID              string           `json:"id"`
 	Name            string           `json:"name"`
 	Symbol          string           `json:"symbol"`
 	Icon            Icon             `json:"icon"`
+	Flags           *FungibleFlags   `json:"flags"`
 	Implementations []Implementation `json:"implementations"`
+}
+
+type FungibleFlags struct {
+	Verified bool `json:"verified"`
 }
 
 type Icon struct {
@@ -293,7 +317,18 @@ func (i *Implementation) UnmarshalJSON(data []byte) error {
 }
 
 type PositionRelationships struct {
-	Chain RelationshipChain `json:"chain"`
+	Chain    RelationshipChain    `json:"chain"`
+	Fungible ResourceRelationship `json:"fungible"`
+	Dapp     ResourceRelationship `json:"dapp"`
+}
+
+type ResourceRelationship struct {
+	Data *ResourceIdentifier `json:"data"`
+}
+
+type ResourceIdentifier struct {
+	Type string `json:"type"`
+	ID   string `json:"id"`
 }
 
 type RelationshipChain struct {
