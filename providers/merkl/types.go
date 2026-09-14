@@ -1,6 +1,10 @@
 package merkl
 
-import "errors"
+import (
+	"encoding/json"
+	"errors"
+	"fmt"
+)
 
 // RootInfo captures Merkl root metadata for one chain.
 type RootInfo struct {
@@ -13,6 +17,9 @@ const (
 
 	// OpportunityStatusLive is Merkl's live opportunity status.
 	OpportunityStatusLive = "LIVE"
+
+	// CampaignTypeERC20MultiTokenCrossChain rewards a configured set of token balances.
+	CampaignTypeERC20MultiTokenCrossChain = "ERC20_MULTI_TOKEN_CROSS_CHAIN"
 )
 
 // OpportunityQuery contains filters accepted by /v4/opportunities.
@@ -120,6 +127,7 @@ func (t Token) RewardDecimals() (int, error) {
 
 // Campaign captures campaign-level details when /v4/opportunities is queried with campaigns=true.
 type Campaign struct {
+	ID                  string  `json:"id"`
 	CampaignID          string  `json:"campaignId"`
 	OnChainCampaignID   string  `json:"onChainCampaignId"`
 	Type                string  `json:"type"`
@@ -130,6 +138,39 @@ type Campaign struct {
 	Apr                 float64 `json:"apr"`
 	DailyRewards        float64 `json:"dailyRewards"`
 	RewardToken         Token   `json:"rewardToken"`
+	// Params varies by campaign type; retain it without imposing one schema on other types.
+	Params json.RawMessage `json:"params"`
+}
+
+// MultiTokenCampaignParams identifies the token balances eligible for a multi-token campaign.
+// Opportunity.Tokens may instead describe underlying assets used for display.
+type MultiTokenCampaignParams struct {
+	Tokens []CampaignToken `json:"tokens"`
+}
+
+// CampaignToken is a qualifying token deployment, not the campaign's reward token.
+type CampaignToken struct {
+	ChainID      int    `json:"chainId"`
+	TokenAddress string `json:"tokenAddress"`
+	Name         string `json:"name"`
+	Symbol       string `json:"symbol"`
+	Decimals     int    `json:"decimals"`
+}
+
+// MultiTokenParams decodes the configuration of an ERC20 multi-token cross-chain campaign.
+// Missing configuration is an error: display tokens cannot safely replace it.
+func (c Campaign) MultiTokenParams() (MultiTokenCampaignParams, error) {
+	var params MultiTokenCampaignParams
+	if c.Type != CampaignTypeERC20MultiTokenCrossChain {
+		return params, fmt.Errorf("merkl campaign %q: unsupported multi-token type %q", c.ID, c.Type)
+	}
+	if err := json.Unmarshal(c.Params, &params); err != nil {
+		return params, fmt.Errorf("merkl campaign %q: decode multi-token params: %w", c.ID, err)
+	}
+	if len(params.Tokens) == 0 {
+		return params, fmt.Errorf("merkl campaign %q: missing qualifying tokens", c.ID)
+	}
+	return params, nil
 }
 
 // UserRewardsChain captures Merkl user rewards grouped by chain.
