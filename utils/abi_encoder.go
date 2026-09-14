@@ -145,6 +145,16 @@ func Uint32Type() abi.Type {
 	return MustABIType("uint32")
 }
 
+// Uint64Type returns the uint64 ABI type, packed as a native Go uint64.
+func Uint64Type() abi.Type {
+	return MustABIType("uint64")
+}
+
+// Int64Type returns the int64 ABI type, packed as a native Go int64.
+func Int64Type() abi.Type {
+	return MustABIType("int64")
+}
+
 // Uint160Type is a helper function to get uint160 type.
 // Note: go-ethereum packs uint160 values as *big.Int (size not in {8,16,32,64}).
 func Uint160Type() abi.Type {
