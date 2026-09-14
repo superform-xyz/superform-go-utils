@@ -1,6 +1,7 @@
 package utils
 
 import (
+	"math"
 	"math/big"
 	"strings"
 	"testing"
@@ -14,6 +15,47 @@ import (
 func TestUint64ArrayType(t *testing.T) {
 	abiType := Uint64ArrayType()
 	assert.Equal(t, "uint64[]", abiType.String())
+}
+
+func Test64BitABIEncoding(t *testing.T) {
+	tests := []struct {
+		name     string
+		typ      abi.Type
+		value    any
+		expected string
+	}{
+		{
+			name:     "maximum uint64",
+			typ:      Uint64Type(),
+			value:    uint64(math.MaxUint64),
+			expected: "000000000000000000000000000000000000000000000000ffffffffffffffff",
+		},
+		{
+			name:     "maximum int64",
+			typ:      Int64Type(),
+			value:    int64(math.MaxInt64),
+			expected: "0000000000000000000000000000000000000000000000007fffffffffffffff",
+		},
+		{
+			name:     "minimum int64",
+			typ:      Int64Type(),
+			value:    int64(math.MinInt64),
+			expected: "ffffffffffffffffffffffffffffffffffffffffffffffff8000000000000000",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			args := abi.Arguments{{Type: tt.typ}}
+			encoded, err := args.Pack(tt.value)
+			require.NoError(t, err)
+			assert.Equal(t, common.Hex2Bytes(tt.expected), encoded)
+
+			decoded, err := args.Unpack(common.Hex2Bytes(tt.expected))
+			require.NoError(t, err)
+			require.Len(t, decoded, 1)
+			assert.Equal(t, tt.value, decoded[0])
+		})
+	}
 }
 
 /* -------------------------------------------------------------------------- */
