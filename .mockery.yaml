@@ -11,6 +11,11 @@ packages:
       dir: "pkg/http_client/mocks"
     interfaces:
       ClientBuilder:
+  github.com/superform-xyz/superform-go-utils/providers/coinbase:
+    config:
+      dir: "providers/coinbase/mocks"
+    interfaces:
+      Client:
   github.com/superform-xyz/superform-go-utils/providers/debank:
     config:
       dir: "providers/debank/mocks"
@@ -44,6 +49,11 @@ packages:
   github.com/superform-xyz/superform-go-utils/providers/polymarket:
     config:
       dir: "providers/polymarket/mocks"
+    interfaces:
+      Client:
+  github.com/superform-xyz/superform-go-utils/providers/robinhood:
+    config:
+      dir: "providers/robinhood/mocks"
     interfaces:
       Client:
   github.com/superform-xyz/superform-go-utils/providers/sec:
