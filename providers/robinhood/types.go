@@ -10,8 +10,7 @@ import (
 type CreateConnectIDRequest struct {
 	// WalletAddress is the destination the user's crypto is withdrawn to.
 	WalletAddress string
-	// ReferenceID is the partner-side handle for this attempt. Use
-	// NewReferenceID unless the caller already has one.
+	// ReferenceID is the partner-side handle for this attempt.
 	ReferenceID string
 }
 
@@ -20,30 +19,27 @@ type CreateConnectIDResponse struct {
 	ConnectID string
 }
 
-// BuildConnectURLRequest describes the Robinhood Connect handoff URL. The URL
-// is a universal link: it opens the Robinhood app when installed and falls back
-// to the web flow otherwise.
+// BuildConnectURLRequest describes the Robinhood Connect handoff URL. Every
+// field but ConnectID and WalletAddress is optional and omitted when unset.
 type BuildConnectURLRequest struct {
 	ConnectID     string
 	WalletAddress string
-	// RedirectURL is where Robinhood returns the user, typically the caller's
-	// own deep link. Required: without it the user is stranded in Robinhood at
-	// the end of the flow.
+	// RedirectURL is where Robinhood returns the user, typically a deep link.
 	RedirectURL string
-	// SupportedNetworks defaults to ETHEREUM, SupportedAssets to USDC.
+	// SupportedNetworks and SupportedAssets are joined with commas.
 	SupportedNetworks []string
 	SupportedAssets   []string
-	// FiatAmount is sent verbatim when set, and locks the amount in the
-	// Robinhood UI so the user cannot buy a different size than the one the
-	// caller already quoted.
+	// FiatAmount is sent verbatim, so "100.00" stays "100.00".
 	FiatAmount json.Number
-	// FiatCode and AssetCode default to USD and USDC, and apply only when
-	// FiatAmount is set.
-	FiatCode  string
-	AssetCode string
+	FiatCode   string
+	AssetCode  string
+	// LockAmount pins the amount in the Robinhood UI. It is set independently
+	// of FiatAmount rather than inferred from it.
+	LockAmount bool
 }
 
-// Order statuses reported by the Robinhood order-details API.
+// Order statuses reported by the order-details API, for comparison by the
+// caller. An unrecognised status is passed through untouched.
 const (
 	OrderStatusInProgress = "ORDER_STATUS_IN_PROGRESS"
 	OrderStatusSucceeded  = "ORDER_STATUS_SUCCEEDED"
@@ -51,25 +47,11 @@ const (
 	OrderStatusCancelled  = "ORDER_STATUS_CANCELLED"
 )
 
-// IsTerminalOrderStatus reports whether a status will not change again, so a
-// poller can stop.
-func IsTerminalOrderStatus(status string) bool {
-	switch status {
-	case OrderStatusSucceeded, OrderStatusFailed, OrderStatusCancelled:
-		return true
-	default:
-		return false
-	}
-}
-
-func isKnownOrderStatus(status string) bool {
-	return status == OrderStatusInProgress || IsTerminalOrderStatus(status)
-}
-
 // Order models the subset of a Robinhood order downstream services need.
-// CryptoAmount stays a string: it is a settlement value, never an operand here.
+// CryptoAmount stays a string; this package never does arithmetic on it.
 type Order struct {
-	// ID is Robinhood's connectId for the order.
+	// ID is Robinhood's connectId as reported. Robinhood omits it on some
+	// responses, where it is left empty rather than backfilled.
 	ID                      string
 	Status                  string
 	AssetCode               string
@@ -106,8 +88,8 @@ func (r orderResponse) toOrder() Order {
 	}
 }
 
-// jsonAmountString accepts an amount whether Robinhood encodes it as a JSON
-// string or a bare number, and keeps it as text either way.
+// jsonAmountString keeps an amount as text whether Robinhood encodes it as a
+// JSON string or a bare number.
 type jsonAmountString string
 
 func (a *jsonAmountString) UnmarshalJSON(data []byte) error {

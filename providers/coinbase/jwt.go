@@ -18,11 +18,8 @@ import (
 	"time"
 )
 
-// Coinbase Developer Platform authenticates every REST call with a short-lived
-// bearer JWT signed by the API key secret, scoped to the exact method+host+path
-// it is used on. This mirrors `generateJwt` from @coinbase/cdp-sdk/auth, which
-// apps/v2's `src/lib/server/coinbase-cdp.ts` calls today, and is implemented on
-// the standard library so the module gains no new dependency.
+// CDP authenticates every REST call with a short-lived bearer JWT signed by the
+// API key secret and scoped to one method+host+path.
 const (
 	jwtIssuer     = "cdp"
 	jwtAudience   = "cdp_service"
@@ -34,13 +31,11 @@ const (
 )
 
 // ErrInvalidAPIKeySecret marks a secret that is neither a base64 Ed25519 key
-// nor a PEM-encoded EC private key. It is reported separately from transport
-// failures because it is a deployment fault, never a retryable upstream one.
+// nor a PEM-encoded EC private key.
 var ErrInvalidAPIKeySecret = errors.New("coinbase invalid api key secret")
 
 // apiKeySigner signs the JWS signing input with whichever key type the CDP
-// portal issued. Ed25519 keys are handed out as base64; the older ECDSA keys
-// as PEM.
+// portal issued: Ed25519 as base64, ECDSA as PEM.
 type apiKeySigner interface {
 	alg() string
 	sign(signingInput []byte) ([]byte, error)
@@ -68,8 +63,7 @@ func (s ecdsaSigner) sign(signingInput []byte) ([]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("sign: %w", err)
 	}
-	// JWS wants the fixed-width r||s pair, not the ASN.1 envelope
-	// ecdsa.SignASN1 produces.
+	// JWS wants the fixed-width r||s pair, not an ASN.1 envelope.
 	size := (s.key.Curve.Params().N.BitLen() + 7) / 8
 	out := make([]byte, 2*size)
 	padInto(out[:size], r)
@@ -89,9 +83,7 @@ func parseAPIKeySecret(secret string) (apiKeySigner, error) {
 		return nil, fmt.Errorf("%w: empty", ErrInvalidAPIKeySecret)
 	}
 
-	// Env vars and secret managers routinely carry PEM newlines escaped; the
-	// CDP SDK unescapes them too, so a key copied verbatim from the portal
-	// keeps working here.
+	// Secret stores routinely carry PEM newlines escaped.
 	if unescaped := strings.ReplaceAll(secret, `\n`, "\n"); strings.Contains(unescaped, "-----BEGIN") {
 		return parsePEMSecret(unescaped)
 	}
@@ -128,8 +120,7 @@ func parsePEMSecret(secret string) (apiKeySigner, error) {
 	if err != nil {
 		return nil, fmt.Errorf("%w: %s", ErrInvalidAPIKeySecret, err)
 	}
-	// ES256 is defined over P-256 only; any other curve would produce a token
-	// the CDP gateway rejects with an opaque 401.
+	// ES256 is defined over P-256 only; another curve yields an opaque 401.
 	if key.Curve != elliptic.P256() {
 		return nil, fmt.Errorf("%w: expected P-256 curve, got %s", ErrInvalidAPIKeySecret, key.Curve.Params().Name)
 	}
@@ -156,7 +147,7 @@ func parseBase64Secret(secret string) (apiKeySigner, error) {
 	}
 
 	switch len(raw) {
-	case ed25519.PrivateKeySize: // seed || public key, what the CDP portal emits
+	case ed25519.PrivateKeySize: // seed || public key, as the portal emits it
 		return ed25519Signer{key: ed25519.PrivateKey(raw)}, nil
 	case ed25519.SeedSize:
 		return ed25519Signer{key: ed25519.NewKeyFromSeed(raw)}, nil
@@ -166,9 +157,8 @@ func parseBase64Secret(secret string) (apiKeySigner, error) {
 	}
 }
 
-// mintJWT builds the bearer token for one request. `uris` binds the token to a
-// single method/host/path, so a token minted for the session-token endpoint
-// cannot be replayed against the transactions endpoint.
+// mintJWT builds the bearer token for one request. The uris claim binds it to a
+// single method/host/path, so it cannot be replayed against another endpoint.
 func mintJWT(signer apiKeySigner, apiKeyID, method, host, path string) (string, error) {
 	nonce := make([]byte, jwtNonceBytes)
 	if _, err := rand.Read(nonce); err != nil {

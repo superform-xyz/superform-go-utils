@@ -5,10 +5,9 @@ import (
 	"strings"
 )
 
-// CreateSessionTokenRequest asks CDP for a single-use token that binds the
-// destination addresses (and optionally the assets) to one hosted onramp
-// session. Passing the addresses here rather than in the widget URL is what
-// keeps a client from redirecting a purchase to an address it does not own.
+// CreateSessionTokenRequest asks CDP for a single-use token binding the
+// destination addresses, and optionally the assets, to one hosted onramp
+// session.
 type CreateSessionTokenRequest struct {
 	Addresses []SessionTokenAddress
 	Assets    []string
@@ -28,35 +27,28 @@ type CreateSessionTokenResponse struct {
 }
 
 // BuildBuyURLRequest describes the hosted Coinbase Onramp URL to hand back to a
-// client. SessionToken is always required: without it the widget would accept a
-// destination address chosen by the caller.
+// client. Every field but SessionToken is optional and omitted when unset.
 type BuildBuyURLRequest struct {
 	SessionToken string
-	// PartnerUserRef is the handle GetBuyTransactions later reads the order
-	// back by. Use NewPartnerUserRef unless the caller already has one.
+	// PartnerUserRef is the handle GetBuyTransactions reads the order back by.
 	PartnerUserRef string
-	// PresetFiatAmount is sent verbatim, so "100.00" stays "100.00" instead of
-	// picking up float formatting on the way through.
+	// PresetFiatAmount is sent verbatim, so "100.00" stays "100.00".
 	PresetFiatAmount json.Number
-	// FiatCurrency defaults to USD when empty.
-	FiatCurrency string
-	// DefaultPaymentMethod preselects a rail (e.g. "APPLE_PAY"). Ignored in
-	// sandbox, which has no documented parameter for it.
+	FiatCurrency     string
+	// DefaultPaymentMethod preselects a rail, e.g. "APPLE_PAY".
 	DefaultPaymentMethod string
 	RedirectURL          string
-	// Addresses maps a destination address to its blockchain names. Production
-	// only: the sandbox widget takes the addresses from the session token.
+	// Addresses maps a destination address to its blockchain names.
 	Addresses map[string][]string
-	// Assets restricts the buyable assets (e.g. ["USDC"]). Production only.
+	// Assets restricts the buyable assets, e.g. ["USDC"].
 	Assets []string
 }
 
-// GetBuyTransactionsRequest reads one partner user's buy history, newest first.
+// GetBuyTransactionsRequest reads one partner user's buy history. PageSize and
+// PageKey are omitted when unset.
 type GetBuyTransactionsRequest struct {
 	PartnerUserRef string
-	// PageSize defaults to 1 — polling a single in-flight order is the common
-	// case — and is capped at MaxBuyTransactionsPageSize.
-	PageSize int
+	PageSize       int
 	// PageKey continues a previous page, from NextPageKey.
 	PageKey string
 }
@@ -70,7 +62,8 @@ type GetBuyTransactionsResponse struct {
 	NextPageKey string
 }
 
-// Buy transaction statuses reported by CDP.
+// Buy transaction statuses reported by CDP, for comparison by the caller. An
+// unrecognised status is passed through untouched.
 const (
 	TransactionStatusCreated    = "ONRAMP_TRANSACTION_STATUS_CREATED"
 	TransactionStatusInProgress = "ONRAMP_TRANSACTION_STATUS_IN_PROGRESS"
@@ -78,20 +71,8 @@ const (
 	TransactionStatusFailed     = "ONRAMP_TRANSACTION_STATUS_FAILED"
 )
 
-// IsTerminalTransactionStatus reports whether a status will not change again,
-// so a poller can stop.
-func IsTerminalTransactionStatus(status string) bool {
-	switch status {
-	case TransactionStatusSuccess, TransactionStatusFailed:
-		return true
-	default:
-		return false
-	}
-}
-
 // BuyTransaction models the subset of a CDP buy transaction downstream services
-// need. Amounts stay strings: they are display and settlement values, never
-// operands here.
+// need. Amounts stay strings; this package never does arithmetic on them.
 type BuyTransaction struct {
 	Status           string `json:"status"`
 	TransactionID    string `json:"transaction_id"`
@@ -145,8 +126,8 @@ func (t *BuyTransaction) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-// jsonAmountString accepts an amount whether CDP encodes it as a JSON string or
-// a bare number, and keeps it as text either way.
+// jsonAmountString keeps an amount as text whether CDP encodes it as a JSON
+// string or a bare number.
 type jsonAmountString string
 
 func (a *jsonAmountString) UnmarshalJSON(data []byte) error {
