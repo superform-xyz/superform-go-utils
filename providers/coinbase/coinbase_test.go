@@ -354,7 +354,8 @@ func TestBuildBuyURL(t *testing.T) {
 	assert.JSONEq(t, `["USDC"]`, query.Get("assets"))
 }
 
-// Sandbox and production take the same parameters; only the host differs.
+// An overridden host changes only the host: one request builds one parameter
+// set, wherever it is pointed.
 func TestBuildBuyURLIsHostAgnostic(t *testing.T) {
 	t.Parallel()
 
@@ -369,20 +370,20 @@ func TestBuildBuyURLIsHostAgnostic(t *testing.T) {
 		Assets:               []string{"USDC"},
 	}
 
-	production, err := mustNew(t).BuildBuyURL(req)
+	def, err := mustNew(t).BuildBuyURL(req)
 	require.NoError(t, err)
-	sandbox, err := mustNew(t, WithBuyBaseURL(SandboxBuyBaseURL)).BuildBuyURL(req)
-	require.NoError(t, err)
-
-	productionURL, err := url.Parse(production)
-	require.NoError(t, err)
-	sandboxURL, err := url.Parse(sandbox)
+	overridden, err := mustNew(t, WithBuyBaseURL("https://pay.example.test/buy/select-asset")).BuildBuyURL(req)
 	require.NoError(t, err)
 
-	assert.Equal(t, "pay.coinbase.com", productionURL.Host)
-	assert.Equal(t, "pay-sandbox.coinbase.com", sandboxURL.Host)
-	assert.Equal(t, productionURL.Path, sandboxURL.Path)
-	assert.Equal(t, productionURL.Query(), sandboxURL.Query())
+	defaultURL, err := url.Parse(def)
+	require.NoError(t, err)
+	overriddenURL, err := url.Parse(overridden)
+	require.NoError(t, err)
+
+	assert.Equal(t, "pay.coinbase.com", defaultURL.Host)
+	assert.Equal(t, "pay.example.test", overriddenURL.Host)
+	assert.Equal(t, defaultURL.Path, overriddenURL.Path)
+	assert.Equal(t, defaultURL.Query(), overriddenURL.Query())
 }
 
 func TestBuildBuyURLOmitsUnsetFields(t *testing.T) {

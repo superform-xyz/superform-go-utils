@@ -20,12 +20,10 @@ import (
 )
 
 const (
-	// ProductionAPIBaseURL is the Robinhood partner API host.
-	ProductionAPIBaseURL = "https://api.robinhood.com"
+	productionAPIBaseURL = "https://api.robinhood.com"
 
-	// ProductionConnectBaseURL is a universal link: it opens the Robinhood app
-	// when installed, the web flow otherwise.
-	ProductionConnectBaseURL = "https://applink.robinhood.com/u/connect"
+	// A universal link: opens the Robinhood app when installed, web otherwise.
+	productionConnectBaseURL = "https://applink.robinhood.com/u/connect"
 
 	createConnectIDPath = "/catpay/v1/connect_id/"
 	getOrderPathFmt     = "/catpay/v1/external/order/%s"
@@ -100,7 +98,7 @@ func WithAPIKey(apiKey string) Option {
 	}
 }
 
-// WithAPIBaseURL overrides the API host. Defaults to ProductionAPIBaseURL.
+// WithAPIBaseURL overrides the API host.
 func WithAPIBaseURL(baseURL string) Option {
 	return func(c *client) {
 		if baseURL = trimBaseURL(baseURL); baseURL != "" {
@@ -109,8 +107,7 @@ func WithAPIBaseURL(baseURL string) Option {
 	}
 }
 
-// WithConnectBaseURL overrides the connect universal link. Defaults to
-// ProductionConnectBaseURL.
+// WithConnectBaseURL overrides the connect universal link.
 func WithConnectBaseURL(baseURL string) Option {
 	return func(c *client) {
 		if baseURL = trimBaseURL(baseURL); baseURL != "" {
@@ -131,8 +128,8 @@ func WithHTTPClient(httpClient *http.Client) Option {
 // New creates a Robinhood Connect client.
 func New(opts ...Option) (Client, error) {
 	c := &client{
-		apiBaseURL:     ProductionAPIBaseURL,
-		connectBaseURL: ProductionConnectBaseURL,
+		apiBaseURL:     productionAPIBaseURL,
+		connectBaseURL: productionConnectBaseURL,
 	}
 	for _, opt := range opts {
 		if opt != nil {

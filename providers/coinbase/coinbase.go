@@ -20,13 +20,8 @@ import (
 )
 
 const (
-	// ProductionAPIBaseURL is the CDP REST host.
-	ProductionAPIBaseURL = "https://api.developer.coinbase.com"
-
-	// ProductionBuyBaseURL and SandboxBuyBaseURL are the hosted widget entry
-	// points, selected with WithBuyBaseURL.
-	ProductionBuyBaseURL = "https://pay.coinbase.com/buy/select-asset"
-	SandboxBuyBaseURL    = "https://pay-sandbox.coinbase.com/buy/select-asset"
+	productionAPIBaseURL = "https://api.developer.coinbase.com"
+	productionBuyBaseURL = "https://pay.coinbase.com/buy/select-asset"
 
 	createSessionTokenPath = "/onramp/v1/token"
 	buyTransactionsPathFmt = "/onramp/v1/buy/user/%s/transactions"
@@ -112,7 +107,7 @@ func WithProjectID(projectID string) Option {
 	}
 }
 
-// WithAPIBaseURL overrides the CDP API host. Defaults to ProductionAPIBaseURL.
+// WithAPIBaseURL overrides the CDP API host.
 func WithAPIBaseURL(baseURL string) Option {
 	return func(c *client) {
 		if baseURL = trimBaseURL(baseURL); baseURL != "" {
@@ -121,8 +116,7 @@ func WithAPIBaseURL(baseURL string) Option {
 	}
 }
 
-// WithBuyBaseURL overrides the hosted widget URL, e.g. SandboxBuyBaseURL.
-// Defaults to ProductionBuyBaseURL.
+// WithBuyBaseURL overrides the hosted widget URL.
 func WithBuyBaseURL(baseURL string) Option {
 	return func(c *client) {
 		if baseURL = trimBaseURL(baseURL); baseURL != "" {
@@ -143,8 +137,8 @@ func WithHTTPClient(httpClient *http.Client) Option {
 // New creates a Coinbase CDP client.
 func New(opts ...Option) (Client, error) {
 	c := &client{
-		apiBaseURL: ProductionAPIBaseURL,
-		buyBaseURL: ProductionBuyBaseURL,
+		apiBaseURL: productionAPIBaseURL,
+		buyBaseURL: productionBuyBaseURL,
 	}
 	for _, opt := range opts {
 		if opt != nil {
