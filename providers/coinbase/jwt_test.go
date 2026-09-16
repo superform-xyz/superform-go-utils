@@ -34,8 +34,7 @@ func newECDSASecret(t *testing.T) (*ecdsa.PublicKey, string) {
 	return &key.PublicKey, string(pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: der}))
 }
 
-// splitJWT returns the signing input, decoded header, decoded claims and raw
-// signature of a compact JWS.
+// splitJWT returns the signing input, header, claims and signature of a JWS.
 func splitJWT(t *testing.T, token string) (string, map[string]any, map[string]any, []byte) {
 	t.Helper()
 	parts := strings.Split(token, ".")
