@@ -41,4 +41,6 @@ const (
 	StableChainID = uint64(988)
 	// RobinhoodChainID is the chain ID for Robinhood Chain
 	RobinhoodChainID = uint64(4663)
+	// ArcChainID is the chain ID for Arc, Circle's USDC-gas L1
+	ArcChainID = uint64(5042)
 )

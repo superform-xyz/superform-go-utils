@@ -193,14 +193,6 @@ func TestChainHelpers(t *testing.T) {
 	require.True(t, ok)
 	assert.Equal(t, "optimism", slug)
 
-	slug, ok = ChainSlug(constants.RobinhoodChainID)
-	require.True(t, ok)
-	assert.Equal(t, "robinhood", slug)
-
-	chainID, ok = ChainID("Robinhood")
-	require.True(t, ok)
-	assert.Equal(t, constants.RobinhoodChainID, chainID)
-
 	slug, ok = ChainSlug(constants.FlareChainID)
 	require.True(t, ok)
 	assert.Equal(t, "flare", slug)

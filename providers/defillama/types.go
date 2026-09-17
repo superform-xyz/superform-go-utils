@@ -18,6 +18,7 @@ var chainToNameMap = map[uint64]string{
 	constants.HyperEvmChainID:  "hyperliquid",
 	constants.FlareChainID:     "flare",
 	constants.RobinhoodChainID: "robinhood",
+	constants.ArcChainID:       "arc",
 }
 
 // Coin represents a coin.
