@@ -1,21 +1,17 @@
 // Package coinbase implements a stateless client for the Coinbase Developer
-// Platform (CDP) Onramp APIs: minting hosted-widget session tokens, building
-// the hosted buy URL, and reading a partner user's buy transactions.
+// Platform (CDP) Onramp APIs: minting hosted-widget session tokens, reading a
+// partner user's buy transactions, and building the hosted buy URL.
 //
-// It exists so the credentials stay server-side. The mobile and web clients
-// previously reached CDP through per-app route handlers; this package is the
-// single Go implementation those backends share.
+// The package is transport only: configuration and policy belong to the caller.
 package coinbase
 
 import (
 	"bytes"
 	"context"
-	"crypto/rand"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
-	"math/big"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -25,21 +21,14 @@ import (
 
 const (
 	productionAPIBaseURL = "https://api.developer.coinbase.com"
-
-	// productionBuyBaseURL is the hosted widget entry point. The sandbox host
-	// answers on an /buy/select-asset path instead of plain /buy.
-	productionBuyBaseURL = "https://pay.coinbase.com/buy"
-	sandboxBuyBaseURL    = "https://pay-sandbox.coinbase.com/buy/select-asset"
+	productionBuyBaseURL = "https://pay.coinbase.com/buy/select-asset"
 
 	createSessionTokenPath = "/onramp/v1/token"
 	buyTransactionsPathFmt = "/onramp/v1/buy/user/%s/transactions"
 
-	defaultFiatCurrency = "USD"
-
-	// MaxBuyTransactionsPageSize is the largest page CDP will return.
+	// MaxBuyTransactionsPageSize is the largest page CDP documents. The client
+	// does not enforce it.
 	MaxBuyTransactionsPageSize = 50
-
-	defaultBuyTransactionsPageSize = 1
 
 	defaultTimeout       = 15 * time.Second
 	maxResponseBody      = 4 << 20
@@ -88,7 +77,6 @@ type client struct {
 	apiBaseURL   string
 	apiHost      string
 	buyBaseURL   string
-	sandbox      bool
 	httpClient   *http.Client
 }
 
@@ -112,22 +100,14 @@ func WithAPIKeySecret(secret string) Option {
 	}
 }
 
-// WithProjectID sets the CDP project id, sent as the widget's appId. Required
-// to build a production buy URL; unused in sandbox.
+// WithProjectID sets the CDP project id, emitted as the widget's appId when set.
 func WithProjectID(projectID string) Option {
 	return func(c *client) {
 		c.projectID = strings.TrimSpace(projectID)
 	}
 }
 
-// WithSandbox routes the buy URL at Coinbase's sandbox widget host.
-func WithSandbox(sandbox bool) Option {
-	return func(c *client) {
-		c.sandbox = sandbox
-	}
-}
-
-// WithAPIBaseURL overrides the CDP API host for tests.
+// WithAPIBaseURL overrides the CDP API host.
 func WithAPIBaseURL(baseURL string) Option {
 	return func(c *client) {
 		if baseURL = trimBaseURL(baseURL); baseURL != "" {
@@ -136,7 +116,7 @@ func WithAPIBaseURL(baseURL string) Option {
 	}
 }
 
-// WithBuyBaseURL overrides the hosted widget URL for tests.
+// WithBuyBaseURL overrides the hosted widget URL.
 func WithBuyBaseURL(baseURL string) Option {
 	return func(c *client) {
 		if baseURL = trimBaseURL(baseURL); baseURL != "" {
@@ -156,7 +136,10 @@ func WithHTTPClient(httpClient *http.Client) Option {
 
 // New creates a Coinbase CDP client.
 func New(opts ...Option) (Client, error) {
-	c := &client{apiBaseURL: productionAPIBaseURL}
+	c := &client{
+		apiBaseURL: productionAPIBaseURL,
+		buyBaseURL: productionBuyBaseURL,
+	}
 	for _, opt := range opts {
 		if opt != nil {
 			opt(c)
@@ -171,8 +154,7 @@ func New(opts ...Option) (Client, error) {
 		return nil, fmt.Errorf("coinbase: %w", err)
 	}
 	c.signer = signer
-	// The secret is only ever needed to build the signer; drop the plaintext
-	// copy so it cannot leak through a later dump of the struct.
+	// Only needed to build the signer; drop the plaintext copy.
 	c.apiKeySecret = ""
 
 	host, err := hostOf(c.apiBaseURL)
@@ -181,20 +163,14 @@ func New(opts ...Option) (Client, error) {
 	}
 	c.apiHost = host
 
-	if c.buyBaseURL == "" {
-		c.buyBaseURL = productionBuyBaseURL
-		if c.sandbox {
-			c.buyBaseURL = sandboxBuyBaseURL
-		}
-	}
 	if c.httpClient == nil {
 		c.httpClient = &http.Client{Timeout: defaultTimeout}
 	}
 	return c, nil
 }
 
-// CreateSessionToken mints a single-use token binding a hosted onramp session
-// to the destination addresses given here.
+// CreateSessionToken mints a single-use token binding a hosted onramp session to
+// the destination addresses given here.
 func (c *client) CreateSessionToken(ctx context.Context, req CreateSessionTokenRequest) (*CreateSessionTokenResponse, error) {
 	if len(req.Addresses) == 0 {
 		return nil, errors.New("coinbase create session token: at least one address is required")
@@ -221,7 +197,7 @@ func (c *client) CreateSessionToken(ctx context.Context, req CreateSessionTokenR
 		return nil, errors.New("coinbase create session token: missing token")
 	}
 
-	// CDP has shipped this field under both spellings; take whichever arrived.
+	// CDP has shipped this field under both spellings.
 	channelID := out.ChannelID
 	if channelID == "" {
 		channelID = out.ChannelIDSnake
@@ -229,23 +205,18 @@ func (c *client) CreateSessionToken(ctx context.Context, req CreateSessionTokenR
 	return &CreateSessionTokenResponse{Token: out.Token, ChannelID: channelID}, nil
 }
 
-// GetBuyTransactions reads one page of a partner user's buy transactions.
+// GetBuyTransactions reads one page of a partner user's buy transactions. Unset
+// paging fields are omitted, leaving CDP's own defaults in force.
 func (c *client) GetBuyTransactions(ctx context.Context, req GetBuyTransactionsRequest) (*GetBuyTransactionsResponse, error) {
 	partnerUserRef := strings.TrimSpace(req.PartnerUserRef)
 	if partnerUserRef == "" {
 		return nil, errors.New("coinbase get buy transactions: partner user ref is required")
 	}
 
-	pageSize := req.PageSize
-	if pageSize <= 0 {
-		pageSize = defaultBuyTransactionsPageSize
-	}
-	if pageSize > MaxBuyTransactionsPageSize {
-		return nil, fmt.Errorf("coinbase get buy transactions: page size %d exceeds max %d", pageSize, MaxBuyTransactionsPageSize)
-	}
-
 	values := url.Values{}
-	values.Set("page_size", strconv.Itoa(pageSize))
+	if req.PageSize > 0 {
+		values.Set("page_size", strconv.Itoa(req.PageSize))
+	}
 	if pageKey := strings.TrimSpace(req.PageKey); pageKey != "" {
 		values.Set("page_key", pageKey)
 	}
@@ -263,14 +234,9 @@ func (c *client) GetBuyTransactions(ctx context.Context, req GetBuyTransactionsR
 	}, nil
 }
 
-// BuildBuyURL returns the hosted Coinbase Onramp URL for one purchase. It is
-// pure — no network call — so a caller that already holds a session token can
-// build the URL without another round trip.
-//
-// The parameter set mirrors what the widget is known to accept in each
-// environment: production carries the project id, destination addresses and
-// asset allowlist alongside the session token, while sandbox takes only the
-// session token and the order's own fields.
+// BuildBuyURL returns the hosted Coinbase Onramp URL for one purchase. It makes
+// no network call: every optional field is emitted when set and omitted when
+// not, against whichever host the client was configured with.
 func (c *client) BuildBuyURL(req BuildBuyURLRequest) (string, error) {
 	sessionToken := strings.TrimSpace(req.SessionToken)
 	if sessionToken == "" {
@@ -285,45 +251,28 @@ func (c *client) BuildBuyURL(req BuildBuyURLRequest) (string, error) {
 	values := url.Values{}
 	values.Set("sessionToken", sessionToken)
 
-	fiatCurrency := strings.TrimSpace(req.FiatCurrency)
-	if fiatCurrency == "" {
-		fiatCurrency = defaultFiatCurrency
-	}
-	values.Set("fiatCurrency", fiatCurrency)
-
-	if ref := strings.TrimSpace(req.PartnerUserRef); ref != "" {
-		values.Set("partnerUserRef", ref)
-	}
-	if amount := strings.TrimSpace(req.PresetFiatAmount.String()); amount != "" {
-		values.Set("presetFiatAmount", amount)
-	}
-	if redirectURL := strings.TrimSpace(req.RedirectURL); redirectURL != "" {
-		values.Set("redirectUrl", redirectURL)
-	}
-
-	if !c.sandbox {
-		if c.projectID == "" {
-			return "", errors.New("coinbase build buy url: project id is required outside sandbox")
-		}
+	if c.projectID != "" {
 		values.Set("appId", c.projectID)
+	}
+	setIfPresent(values, "partnerUserRef", req.PartnerUserRef)
+	setIfPresent(values, "presetFiatAmount", req.PresetFiatAmount.String())
+	setIfPresent(values, "fiatCurrency", req.FiatCurrency)
+	setIfPresent(values, "defaultPaymentMethod", req.DefaultPaymentMethod)
+	setIfPresent(values, "redirectUrl", req.RedirectURL)
 
-		if len(req.Addresses) > 0 {
-			encoded, err := json.Marshal(req.Addresses)
-			if err != nil {
-				return "", fmt.Errorf("coinbase build buy url: encode addresses: %w", err)
-			}
-			values.Set("addresses", string(encoded))
+	if len(req.Addresses) > 0 {
+		encoded, err := json.Marshal(req.Addresses)
+		if err != nil {
+			return "", fmt.Errorf("coinbase build buy url: encode addresses: %w", err)
 		}
-		if len(req.Assets) > 0 {
-			encoded, err := json.Marshal(req.Assets)
-			if err != nil {
-				return "", fmt.Errorf("coinbase build buy url: encode assets: %w", err)
-			}
-			values.Set("assets", string(encoded))
+		values.Set("addresses", string(encoded))
+	}
+	if len(req.Assets) > 0 {
+		encoded, err := json.Marshal(req.Assets)
+		if err != nil {
+			return "", fmt.Errorf("coinbase build buy url: encode assets: %w", err)
 		}
-		if method := strings.TrimSpace(req.DefaultPaymentMethod); method != "" {
-			values.Set("defaultPaymentMethod", method)
-		}
+		values.Set("assets", string(encoded))
 	}
 
 	endpoint.RawQuery = values.Encode()
@@ -361,8 +310,8 @@ func (c *client) doJSON(ctx context.Context, method, path, rawQuery string, payl
 		return fmt.Errorf("build request: %w", err)
 	}
 
-	// The token is scoped to this exact method, host and path; the query string
-	// is deliberately excluded, matching how CDP verifies the `uris` claim.
+	// Scoped to this method, host and path; the query string is excluded, as
+	// CDP verifies the uris claim.
 	token, err := mintJWT(c.signer, c.apiKeyID, method, c.apiHost, path)
 	if err != nil {
 		return fmt.Errorf("mint jwt: %w", err)
@@ -412,44 +361,10 @@ func decodeStatus(resp *http.Response) error {
 	return &APIError{StatusCode: resp.StatusCode, Body: bodyText, Err: err}
 }
 
-// NewPartnerUserRef mints the handle that ties a hosted buy session to the
-// transactions endpoint that reads it back. The shape matches what the mobile
-// app has been generating client-side: the address tail keeps it greppable, the
-// timestamp orders it, and the random tail keeps two rapid "buy again" taps
-// from colliding.
-func NewPartnerUserRef(walletAddress string) (string, error) {
-	walletAddress = strings.TrimSpace(walletAddress)
-	if walletAddress == "" {
-		return "", errors.New("coinbase partner user ref: wallet address is required")
+func setIfPresent(values url.Values, key, value string) {
+	if value = strings.TrimSpace(value); value != "" {
+		values.Set(key, value)
 	}
-
-	suffix, err := randomBase36(4)
-	if err != nil {
-		return "", fmt.Errorf("coinbase partner user ref: %w", err)
-	}
-	return fmt.Sprintf("%s_%s_%s", tail(walletAddress, 8), strconv.FormatInt(time.Now().UnixMilli(), 36), suffix), nil
-}
-
-func tail(value string, n int) string {
-	if len(value) <= n {
-		return value
-	}
-	return value[len(value)-n:]
-}
-
-const base36Alphabet = "0123456789abcdefghijklmnopqrstuvwxyz"
-
-func randomBase36(n int) (string, error) {
-	out := make([]byte, n)
-	max := big.NewInt(int64(len(base36Alphabet)))
-	for i := range out {
-		idx, err := rand.Int(rand.Reader, max)
-		if err != nil {
-			return "", fmt.Errorf("generate random suffix: %w", err)
-		}
-		out[i] = base36Alphabet[idx.Int64()]
-	}
-	return string(out), nil
 }
 
 func hostOf(baseURL string) (string, error) {

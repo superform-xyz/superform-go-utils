@@ -56,6 +56,12 @@ func TestNewValidation(t *testing.T) {
 		_, err := New(WithAPIKeyID("key-id"), WithAPIKeySecret(secret), WithAPIBaseURL("/relative"))
 		require.ErrorContains(t, err, "api base url")
 	})
+
+	t.Run("does not require a project id", func(t *testing.T) {
+		t.Parallel()
+		_, err := New(WithAPIKeyID("key-id"), WithAPIKeySecret(secret))
+		require.NoError(t, err)
+	})
 }
 
 func TestCreateSessionToken(t *testing.T) {
@@ -91,8 +97,7 @@ func TestCreateSessionToken(t *testing.T) {
 		"blockchains": []any{"base"},
 	}}, gotBody["addresses"])
 
-	// The bearer token must be scoped to the exact method+host+path it was
-	// sent on, or CDP rejects it.
+	// The token must be scoped to the method+host+path it is sent on.
 	require.True(t, strings.HasPrefix(gotAuthorization, "Bearer "))
 	_, _, claims, _ := splitJWT(t, strings.TrimPrefix(gotAuthorization, "Bearer "))
 	host, err := hostOf(srv.URL)
@@ -212,8 +217,7 @@ func TestGetBuyTransactions(t *testing.T) {
 	assert.Equal(t, "5", gotQuery.Get("page_size"))
 	assert.Equal(t, "page-1", gotQuery.Get("page_key"))
 
-	// The JWT is scoped to the path only — a query string in the `uris` claim
-	// would make every distinct page fail verification.
+	// Scoped to the path only: a query string in uris would break paging.
 	host, err := hostOf(srv.URL)
 	require.NoError(t, err)
 	assert.Equal(t, []any{"GET " + host + "/onramp/v1/buy/user/wallet01_abc_1234/transactions"}, gotURIs)
@@ -230,28 +234,56 @@ func TestGetBuyTransactions(t *testing.T) {
 	assert.Equal(t, "page-2", got.NextPageKey)
 }
 
-func TestGetBuyTransactionsDefaultsAndLimits(t *testing.T) {
+func TestGetBuyTransactionsOmitsUnsetPaging(t *testing.T) {
 	t.Parallel()
 
-	var gotPageSize string
+	var gotQuery url.Values
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		gotPageSize = r.URL.Query().Get("page_size")
+		gotQuery = r.URL.Query()
 		_, _ = w.Write([]byte(`{"transactions":[],"total_count":0,"next_page_key":null}`))
 	}))
 	defer srv.Close()
 
 	c := mustNew(t, WithAPIBaseURL(srv.URL), WithHTTPClient(srv.Client()))
-
 	got, err := c.GetBuyTransactions(context.Background(), GetBuyTransactionsRequest{PartnerUserRef: "ref"})
 	require.NoError(t, err)
-	assert.Equal(t, "1", gotPageSize)
+
+	assert.False(t, gotQuery.Has("page_size"))
+	assert.False(t, gotQuery.Has("page_key"))
 	assert.Empty(t, got.Transactions)
 	assert.Equal(t, json.Number("0"), got.TotalCount)
+}
 
-	_, err = c.GetBuyTransactions(context.Background(), GetBuyTransactionsRequest{PartnerUserRef: "ref", PageSize: 51})
-	require.ErrorContains(t, err, "exceeds max 50")
+func TestGetBuyTransactionsPassesThroughLargePageSize(t *testing.T) {
+	t.Parallel()
 
-	_, err = c.GetBuyTransactions(context.Background(), GetBuyTransactionsRequest{PartnerUserRef: "  "})
+	var gotPageSize string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPageSize = r.URL.Query().Get("page_size")
+		_, _ = w.Write([]byte(`{"transactions":[],"total_count":0}`))
+	}))
+	defer srv.Close()
+
+	// An over-large page is sent, leaving CDP to reject it.
+	c := mustNew(t, WithAPIBaseURL(srv.URL), WithHTTPClient(srv.Client()))
+	_, err := c.GetBuyTransactions(context.Background(), GetBuyTransactionsRequest{
+		PartnerUserRef: "ref",
+		PageSize:       MaxBuyTransactionsPageSize + 1,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "51", gotPageSize)
+}
+
+func TestGetBuyTransactionsRequiresPartnerUserRef(t *testing.T) {
+	t.Parallel()
+
+	srv := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) {
+		t.Error("no request should reach the server")
+	}))
+	defer srv.Close()
+
+	c := mustNew(t, WithAPIBaseURL(srv.URL), WithHTTPClient(srv.Client()))
+	_, err := c.GetBuyTransactions(context.Background(), GetBuyTransactionsRequest{PartnerUserRef: "  "})
 	require.ErrorContains(t, err, "partner user ref is required")
 }
 
@@ -296,6 +328,7 @@ func TestBuildBuyURL(t *testing.T) {
 		SessionToken:         "session-token",
 		PartnerUserRef:       "wallet01_abc_1234",
 		PresetFiatAmount:     json.Number("100.00"),
+		FiatCurrency:         "USD",
 		DefaultPaymentMethod: "APPLE_PAY",
 		RedirectURL:          "superform://onramp-callback",
 		Addresses:            map[string][]string{"0xwallet": {"base"}},
@@ -306,7 +339,7 @@ func TestBuildBuyURL(t *testing.T) {
 	parsed, err := url.Parse(got)
 	require.NoError(t, err)
 	assert.Equal(t, "pay.coinbase.com", parsed.Host)
-	assert.Equal(t, "/buy", parsed.Path)
+	assert.Equal(t, "/buy/select-asset", parsed.Path)
 
 	query := parsed.Query()
 	assert.Equal(t, "project-id", query.Get("appId"))
@@ -321,14 +354,12 @@ func TestBuildBuyURL(t *testing.T) {
 	assert.JSONEq(t, `["USDC"]`, query.Get("assets"))
 }
 
-func TestBuildBuyURLSandbox(t *testing.T) {
+// An overridden host changes only the host: one request builds one parameter
+// set, wherever it is pointed.
+func TestBuildBuyURLIsHostAgnostic(t *testing.T) {
 	t.Parallel()
 
-	_, secret := newEd25519Secret(t)
-	c, err := New(WithAPIKeyID("key-id"), WithAPIKeySecret(secret), WithSandbox(true))
-	require.NoError(t, err)
-
-	got, err := c.BuildBuyURL(BuildBuyURLRequest{
+	req := BuildBuyURLRequest{
 		SessionToken:         "session-token",
 		PartnerUserRef:       "ref",
 		PresetFiatAmount:     json.Number("50"),
@@ -337,74 +368,45 @@ func TestBuildBuyURLSandbox(t *testing.T) {
 		RedirectURL:          "superform://onramp-callback",
 		Addresses:            map[string][]string{"0xwallet": {"base"}},
 		Assets:               []string{"USDC"},
-	})
+	}
+
+	def, err := mustNew(t).BuildBuyURL(req)
+	require.NoError(t, err)
+	overridden, err := mustNew(t, WithBuyBaseURL("https://pay.example.test/buy/select-asset")).BuildBuyURL(req)
+	require.NoError(t, err)
+
+	defaultURL, err := url.Parse(def)
+	require.NoError(t, err)
+	overriddenURL, err := url.Parse(overridden)
+	require.NoError(t, err)
+
+	assert.Equal(t, "pay.coinbase.com", defaultURL.Host)
+	assert.Equal(t, "pay.example.test", overriddenURL.Host)
+	assert.Equal(t, defaultURL.Path, overriddenURL.Path)
+	assert.Equal(t, defaultURL.Query(), overriddenURL.Query())
+}
+
+func TestBuildBuyURLOmitsUnsetFields(t *testing.T) {
+	t.Parallel()
+
+	_, secret := newEd25519Secret(t)
+	c, err := New(WithAPIKeyID("key-id"), WithAPIKeySecret(secret))
+	require.NoError(t, err)
+
+	got, err := c.BuildBuyURL(BuildBuyURLRequest{SessionToken: "session-token"})
 	require.NoError(t, err)
 
 	parsed, err := url.Parse(got)
 	require.NoError(t, err)
-	assert.Equal(t, "pay-sandbox.coinbase.com", parsed.Host)
-	assert.Equal(t, "/buy/select-asset", parsed.Path)
 
-	query := parsed.Query()
-	assert.Equal(t, "session-token", query.Get("sessionToken"))
-	assert.Equal(t, "EUR", query.Get("fiatCurrency"))
-	assert.Equal(t, "50", query.Get("presetFiatAmount"))
-	// Sandbox documents none of these, so they are left off rather than sent
-	// and silently ignored.
-	assert.Empty(t, query.Get("appId"))
-	assert.Empty(t, query.Get("addresses"))
-	assert.Empty(t, query.Get("assets"))
-	assert.Empty(t, query.Get("defaultPaymentMethod"))
+	assert.Equal(t, url.Values{"sessionToken": {"session-token"}}, parsed.Query())
 }
 
-func TestBuildBuyURLValidation(t *testing.T) {
+func TestBuildBuyURLRequiresSessionToken(t *testing.T) {
 	t.Parallel()
 
-	t.Run("requires a session token", func(t *testing.T) {
-		t.Parallel()
-		_, err := mustNew(t).BuildBuyURL(BuildBuyURLRequest{})
-		require.ErrorContains(t, err, "session token is required")
-	})
-
-	t.Run("requires a project id outside sandbox", func(t *testing.T) {
-		t.Parallel()
-		_, secret := newEd25519Secret(t)
-		c, err := New(WithAPIKeyID("key-id"), WithAPIKeySecret(secret))
-		require.NoError(t, err)
-
-		_, err = c.BuildBuyURL(BuildBuyURLRequest{SessionToken: "session-token"})
-		require.ErrorContains(t, err, "project id is required outside sandbox")
-	})
-}
-
-func TestIsTerminalTransactionStatus(t *testing.T) {
-	t.Parallel()
-
-	assert.True(t, IsTerminalTransactionStatus(TransactionStatusSuccess))
-	assert.True(t, IsTerminalTransactionStatus(TransactionStatusFailed))
-	assert.False(t, IsTerminalTransactionStatus(TransactionStatusCreated))
-	assert.False(t, IsTerminalTransactionStatus(TransactionStatusInProgress))
-	assert.False(t, IsTerminalTransactionStatus("ONRAMP_TRANSACTION_STATUS_SOMETHING_NEW"))
-}
-
-func TestNewPartnerUserRef(t *testing.T) {
-	t.Parallel()
-
-	got, err := NewPartnerUserRef("0x1234567890abcdefABCDEF1234567890abcdefAB")
-	require.NoError(t, err)
-
-	parts := strings.Split(got, "_")
-	require.Len(t, parts, 3)
-	assert.Equal(t, "abcdefAB", parts[0])
-	assert.NotEmpty(t, parts[1])
-	assert.Len(t, parts[2], 4)
-
-	other, err := NewPartnerUserRef("0x1234567890abcdefABCDEF1234567890abcdefAB")
-	require.NoError(t, err)
-	assert.NotEqual(t, got, other, "two refs minted back to back must not collide")
-
-	_, err = NewPartnerUserRef("  ")
-	require.ErrorContains(t, err, "wallet address is required")
+	_, err := mustNew(t).BuildBuyURL(BuildBuyURLRequest{})
+	require.ErrorContains(t, err, "session token is required")
 }
 
 func TestClose(t *testing.T) {
