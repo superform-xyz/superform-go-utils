@@ -216,10 +216,38 @@ func (a *PositionAttributes) UnmarshalJSON(data []byte) error {
 // Receipt identifies the instrument representing a protocol position. Its
 // fungible metadata describes a share or LP token; the position's Quantity
 // still describes FungibleInfo, not the receipt's share balance.
+// Quantity is the wallet-held share balance; nil means unknown, not zero.
 // Zerion also supports NFT receipts for concentrated-liquidity positions.
 type Receipt struct {
 	FungibleInfo *FungibleInfo   `json:"fungible_info"`
 	NFTInfo      *ReceiptNFTInfo `json:"nft_info"`
+	Quantity     *Quantity       `json:"quantity"`
+}
+
+func (r *Receipt) UnmarshalJSON(data []byte) error {
+	type receiptJSON Receipt
+	var decoded receiptJSON
+	aux := struct {
+		*receiptJSON
+		Quantity *struct {
+			Int      *string `json:"int"`
+			Decimals *int32  `json:"decimals"`
+		} `json:"quantity"`
+	}{receiptJSON: &decoded}
+	if err := json.Unmarshal(data, &aux); err != nil {
+		return err
+	}
+	*r = Receipt(decoded)
+	q := aux.Quantity
+	if q == nil || q.Int == nil || strings.TrimSpace(*q.Int) == "" || q.Decimals == nil {
+		return nil
+	}
+	raw, ok := new(big.Int).SetString(strings.TrimSpace(*q.Int), 10)
+	if !ok {
+		return fmt.Errorf("invalid zerion receipt quantity int %q", *q.Int)
+	}
+	r.Quantity = &Quantity{RawAmount: raw, Decimals: *q.Decimals}
+	return nil
 }
 
 type ReceiptNFTInfo struct {
