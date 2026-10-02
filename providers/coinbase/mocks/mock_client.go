@@ -183,6 +183,123 @@ func (_c *MockClient_CreateSessionToken_Call) RunAndReturn(run func(context.Cont
 	return _c
 }
 
+// GetBuyConfig provides a mock function with given fields: ctx
+func (_m *MockClient) GetBuyConfig(ctx context.Context) (*coinbase.GetBuyConfigResponse, error) {
+	ret := _m.Called(ctx)
+
+	if len(ret) == 0 {
+		panic("no return value specified for GetBuyConfig")
+	}
+
+	var r0 *coinbase.GetBuyConfigResponse
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context) (*coinbase.GetBuyConfigResponse, error)); ok {
+		return rf(ctx)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context) *coinbase.GetBuyConfigResponse); ok {
+		r0 = rf(ctx)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*coinbase.GetBuyConfigResponse)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context) error); ok {
+		r1 = rf(ctx)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// MockClient_GetBuyConfig_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetBuyConfig'
+type MockClient_GetBuyConfig_Call struct {
+	*mock.Call
+}
+
+// GetBuyConfig is a helper method to define mock.On call
+//   - ctx context.Context
+func (_e *MockClient_Expecter) GetBuyConfig(ctx interface{}) *MockClient_GetBuyConfig_Call {
+	return &MockClient_GetBuyConfig_Call{Call: _e.mock.On("GetBuyConfig", ctx)}
+}
+
+func (_c *MockClient_GetBuyConfig_Call) Run(run func(ctx context.Context)) *MockClient_GetBuyConfig_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context))
+	})
+	return _c
+}
+
+func (_c *MockClient_GetBuyConfig_Call) Return(_a0 *coinbase.GetBuyConfigResponse, _a1 error) *MockClient_GetBuyConfig_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *MockClient_GetBuyConfig_Call) RunAndReturn(run func(context.Context) (*coinbase.GetBuyConfigResponse, error)) *MockClient_GetBuyConfig_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// GetBuyOptions provides a mock function with given fields: ctx, req
+func (_m *MockClient) GetBuyOptions(ctx context.Context, req coinbase.GetBuyOptionsRequest) (*coinbase.GetBuyOptionsResponse, error) {
+	ret := _m.Called(ctx, req)
+
+	if len(ret) == 0 {
+		panic("no return value specified for GetBuyOptions")
+	}
+
+	var r0 *coinbase.GetBuyOptionsResponse
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, coinbase.GetBuyOptionsRequest) (*coinbase.GetBuyOptionsResponse, error)); ok {
+		return rf(ctx, req)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, coinbase.GetBuyOptionsRequest) *coinbase.GetBuyOptionsResponse); ok {
+		r0 = rf(ctx, req)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*coinbase.GetBuyOptionsResponse)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, coinbase.GetBuyOptionsRequest) error); ok {
+		r1 = rf(ctx, req)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// MockClient_GetBuyOptions_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetBuyOptions'
+type MockClient_GetBuyOptions_Call struct {
+	*mock.Call
+}
+
+// GetBuyOptions is a helper method to define mock.On call
+//   - ctx context.Context
+//   - req coinbase.GetBuyOptionsRequest
+func (_e *MockClient_Expecter) GetBuyOptions(ctx interface{}, req interface{}) *MockClient_GetBuyOptions_Call {
+	return &MockClient_GetBuyOptions_Call{Call: _e.mock.On("GetBuyOptions", ctx, req)}
+}
+
+func (_c *MockClient_GetBuyOptions_Call) Run(run func(ctx context.Context, req coinbase.GetBuyOptionsRequest)) *MockClient_GetBuyOptions_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(coinbase.GetBuyOptionsRequest))
+	})
+	return _c
+}
+
+func (_c *MockClient_GetBuyOptions_Call) Return(_a0 *coinbase.GetBuyOptionsResponse, _a1 error) *MockClient_GetBuyOptions_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *MockClient_GetBuyOptions_Call) RunAndReturn(run func(context.Context, coinbase.GetBuyOptionsRequest) (*coinbase.GetBuyOptionsResponse, error)) *MockClient_GetBuyOptions_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // GetBuyTransactions provides a mock function with given fields: ctx, req
 func (_m *MockClient) GetBuyTransactions(ctx context.Context, req coinbase.GetBuyTransactionsRequest) (*coinbase.GetBuyTransactionsResponse, error) {
 	ret := _m.Called(ctx, req)

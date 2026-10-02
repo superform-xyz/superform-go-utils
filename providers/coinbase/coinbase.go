@@ -1,6 +1,7 @@
 // Package coinbase implements a stateless client for the Coinbase Developer
-// Platform (CDP) Onramp APIs: minting hosted-widget session tokens, reading a
-// partner user's buy transactions, and building the hosted buy URL.
+// Platform (CDP) Onramp APIs: discovering supported countries and buy options,
+// minting hosted-widget session tokens, reading a partner user's buy
+// transactions, and building the hosted buy URL.
 //
 // The package is transport only: configuration and policy belong to the caller.
 package coinbase
@@ -63,6 +64,8 @@ func (e *APIError) Unwrap() error {
 
 // Client defines the stateless CDP Onramp surface.
 type Client interface {
+	GetBuyConfig(ctx context.Context) (*GetBuyConfigResponse, error)
+	GetBuyOptions(ctx context.Context, req GetBuyOptionsRequest) (*GetBuyOptionsResponse, error)
 	CreateSessionToken(ctx context.Context, req CreateSessionTokenRequest) (*CreateSessionTokenResponse, error)
 	GetBuyTransactions(ctx context.Context, req GetBuyTransactionsRequest) (*GetBuyTransactionsResponse, error)
 	BuildBuyURL(req BuildBuyURLRequest) (string, error)
