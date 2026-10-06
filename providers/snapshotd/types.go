@@ -36,6 +36,7 @@ type Allocation struct {
 	AssetSymbol   string         `json:"assetSymbol"`
 	AssetDecimals uint8          `json:"assetDecimals"`
 	TotalAssets   string         `json:"totalAssets,omitempty"`
+	NetAssets     string         `json:"netAssets"`
 	TotalSupply   string         `json:"totalSupply,omitempty"`
 	IdleBalance   string         `json:"idleBalance,omitempty"`
 	Sources       []Source       `json:"sources"`

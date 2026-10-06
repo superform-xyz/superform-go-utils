@@ -131,6 +131,7 @@ func TestGetAllocationDecodesResponse(t *testing.T) {
 			"assetSymbol":"USDC",
 			"assetDecimals":6,
 			"totalAssets":"1200",
+			"netAssets":"1100",
 			"totalSupply":"1000",
 			"idleBalance":"200",
 			"sources":[{
@@ -153,6 +154,7 @@ func TestGetAllocationDecodesResponse(t *testing.T) {
 	assert.Equal(t, testAsset, allocation.Asset)
 	assert.Equal(t, "USDC", allocation.AssetSymbol)
 	assert.Equal(t, uint8(6), allocation.AssetDecimals)
+	assert.Equal(t, "1100", allocation.NetAssets)
 	assert.Equal(t, "200", allocation.IdleBalance)
 	require.Len(t, allocation.Sources, 1)
 	assert.Equal(t, testSource, allocation.Sources[0].Source)
@@ -207,13 +209,60 @@ func TestResponseValidation(t *testing.T) {
 
 	t.Run("mismatched allocation identity", func(t *testing.T) {
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-			_, _ = fmt.Fprintf(w, `{"strategy":%q,"chainId":2,"asset":%q,"totalAssets":"1","totalSupply":"1","idleBalance":"0","sources":[]}`, testStrategy.Hex(), testAsset.Hex())
+			_, _ = fmt.Fprintf(w, `{"strategy":%q,"chainId":2,"asset":%q,"totalAssets":"1","netAssets":"1","totalSupply":"1","idleBalance":"0","sources":[]}`, testStrategy.Hex(), testAsset.Hex())
 		}))
 		defer server.Close()
 
 		client := mustNew(t, WithBaseURL(server.URL), WithHTTPClient(server.Client()))
 		_, err := client.GetAllocation(context.Background(), Query{ChainID: 1, Strategy: testStrategy})
 		assert.ErrorIs(t, err, ErrInvalidResponse)
+	})
+
+	t.Run("net assets", func(t *testing.T) {
+		tests := []struct {
+			name      string
+			netAssets string
+			wantErr   string
+		}{
+			{name: "missing", wantErr: "netAssets is required"},
+			{name: "malformed", netAssets: "1.5", wantErr: "netAssets is not a decimal integer"},
+			{name: "zero", netAssets: "0"},
+			{name: "negative", netAssets: "-100"},
+		}
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				payload := map[string]any{
+					"strategy":    testStrategy.Hex(),
+					"chainId":     1,
+					"asset":       testAsset.Hex(),
+					"totalAssets": "1200",
+					"totalSupply": "1000",
+					"idleBalance": "200",
+					"sources":     []Source{},
+				}
+				if tt.netAssets != "" {
+					payload["netAssets"] = tt.netAssets
+				}
+				body, err := json.Marshal(payload)
+				require.NoError(t, err)
+				server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+					_, _ = w.Write(body)
+				}))
+				defer server.Close()
+
+				client := mustNew(t, WithBaseURL(server.URL), WithHTTPClient(server.Client()))
+				allocation, err := client.GetAllocation(context.Background(), Query{ChainID: 1, Strategy: testStrategy})
+				if tt.wantErr != "" {
+					assert.ErrorIs(t, err, ErrInvalidResponse)
+					assert.ErrorContains(t, err, tt.wantErr)
+					assert.Nil(t, allocation)
+					return
+				}
+				require.NoError(t, err)
+				require.NotNil(t, allocation)
+				assert.Equal(t, tt.netAssets, allocation.NetAssets)
+			})
+		}
 	})
 
 	t.Run("malformed JSON", func(t *testing.T) {
@@ -299,6 +348,7 @@ func TestGetAllocationNormalizesInactiveSourceWithoutAmounts(t *testing.T) {
 			"chainId":1,
 			"asset":%q,
 			"totalAssets":"1",
+			"netAssets":"1",
 			"totalSupply":"1",
 			"idleBalance":"1",
 			"sources":[{"source":%q,"oracle":%q,"kind":1}]
