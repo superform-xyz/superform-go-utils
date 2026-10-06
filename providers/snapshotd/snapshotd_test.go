@@ -138,6 +138,7 @@ func TestGetAllocationDecodesResponse(t *testing.T) {
 				"source":%q,
 				"oracle":%q,
 				"kind":1,
+				"positionType":"asset",
 				"rawShares":"50",
 				"assetTvl":"1000",
 				"assetSymbol":"USDC",
@@ -158,6 +159,7 @@ func TestGetAllocationDecodesResponse(t *testing.T) {
 	assert.Equal(t, "200", allocation.IdleBalance)
 	require.Len(t, allocation.Sources, 1)
 	assert.Equal(t, testSource, allocation.Sources[0].Source)
+	assert.Equal(t, "asset", allocation.Sources[0].PositionType)
 	assert.Equal(t, "1000", allocation.Sources[0].AssetTVL)
 	assert.True(t, allocation.Sources[0].Active)
 }
@@ -265,6 +267,66 @@ func TestResponseValidation(t *testing.T) {
 		}
 	})
 
+	t.Run("source position type", func(t *testing.T) {
+		tests := []struct {
+			name         string
+			positionType string
+			assetTVL     string
+			wantErr      string
+		}{
+			{name: "missing", assetTVL: "1000", wantErr: "sources[0].positionType must be asset or liability"},
+			{name: "unknown", positionType: "unknown", assetTVL: "1000", wantErr: "sources[0].positionType must be asset or liability"},
+			{name: "combined", positionType: "asset_and_liability", assetTVL: "1000", wantErr: "sources[0].positionType must be asset or liability"},
+			{name: "wrong case", positionType: "Asset", assetTVL: "1000", wantErr: "sources[0].positionType must be asset or liability"},
+			{name: "asset", positionType: "asset", assetTVL: "1000"},
+			{name: "liability", positionType: "liability", assetTVL: "1000"},
+			{name: "negative liability magnitude", positionType: "liability", assetTVL: "-1000", wantErr: "sources[0].assetTvl is not a non-negative decimal integer"},
+		}
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				source := map[string]any{
+					"source":   testSource.Hex(),
+					"oracle":   testOracle.Hex(),
+					"kind":     1,
+					"assetTvl": tt.assetTVL,
+					"active":   true,
+				}
+				if tt.positionType != "" {
+					source["positionType"] = tt.positionType
+				}
+				body, err := json.Marshal(map[string]any{
+					"strategy":    testStrategy.Hex(),
+					"chainId":     1,
+					"asset":       testAsset.Hex(),
+					"totalAssets": "1200",
+					"netAssets":   "1100",
+					"totalSupply": "1000",
+					"idleBalance": "200",
+					"sources":     []map[string]any{source},
+				})
+				require.NoError(t, err)
+				server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+					_, _ = w.Write(body)
+				}))
+				defer server.Close()
+
+				client := mustNew(t, WithBaseURL(server.URL), WithHTTPClient(server.Client()))
+				allocation, err := client.GetAllocation(context.Background(), Query{ChainID: 1, Strategy: testStrategy})
+				if tt.wantErr != "" {
+					assert.ErrorIs(t, err, ErrInvalidResponse)
+					assert.ErrorContains(t, err, tt.wantErr)
+					assert.Nil(t, allocation)
+					return
+				}
+				require.NoError(t, err)
+				require.NotNil(t, allocation)
+				require.Len(t, allocation.Sources, 1)
+				assert.Equal(t, tt.positionType, allocation.Sources[0].PositionType)
+				assert.Equal(t, tt.assetTVL, allocation.Sources[0].AssetTVL)
+			})
+		}
+	})
+
 	t.Run("malformed JSON", func(t *testing.T) {
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 			_, _ = fmt.Fprint(w, `{"pps":`)
@@ -351,7 +413,7 @@ func TestGetAllocationNormalizesInactiveSourceWithoutAmounts(t *testing.T) {
 			"netAssets":"1",
 			"totalSupply":"1",
 			"idleBalance":"1",
-			"sources":[{"source":%q,"oracle":%q,"kind":1}]
+			"sources":[{"source":%q,"oracle":%q,"kind":1,"positionType":"asset"}]
 		}`, testStrategy.Hex(), testAsset.Hex(), testSource.Hex(), testOracle.Hex())
 	}))
 	defer server.Close()
@@ -360,6 +422,7 @@ func TestGetAllocationNormalizesInactiveSourceWithoutAmounts(t *testing.T) {
 	allocation, err := client.GetAllocation(context.Background(), Query{ChainID: 1, Strategy: testStrategy})
 	require.NoError(t, err)
 	require.Len(t, allocation.Sources, 1)
+	assert.Equal(t, "asset", allocation.Sources[0].PositionType)
 	assert.Equal(t, "0", allocation.Sources[0].AssetTVL)
 }
 

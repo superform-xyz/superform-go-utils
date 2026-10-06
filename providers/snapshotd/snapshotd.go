@@ -238,6 +238,9 @@ func validateAndNormalizeAllocation(query Query, allocation *Allocation) error {
 		if source.Error != "" {
 			return fmt.Errorf("snapshotd: source %s failed: %s: %w", source.Source.Hex(), source.Error, ErrInvalidResponse)
 		}
+		if source.PositionType != "asset" && source.PositionType != "liability" {
+			return fmt.Errorf("snapshotd: sources[%d].positionType must be asset or liability: %w", i, ErrInvalidResponse)
+		}
 		if source.RawShares != "" {
 			if err := validateDecimal(fmt.Sprintf("sources[%d].rawShares", i), source.RawShares); err != nil {
 				return err

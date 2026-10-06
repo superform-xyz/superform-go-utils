@@ -44,14 +44,15 @@ type Allocation struct {
 
 // Source contains one yield source's balance normalized into the vault asset.
 type Source struct {
-	Source      common.Address `json:"source"`
-	Oracle      common.Address `json:"oracle"`
-	Kind        uint8          `json:"kind"`
-	Error       string         `json:"error,omitempty"`
-	RawShares   string         `json:"rawShares,omitempty"`
-	AssetTVL    string         `json:"assetTvl,omitempty"`
-	AssetSymbol string         `json:"assetSymbol,omitempty"`
-	Active      bool           `json:"active,omitempty"`
+	Source       common.Address `json:"source"`
+	Oracle       common.Address `json:"oracle"`
+	Kind         uint8          `json:"kind"`
+	PositionType string         `json:"positionType"`
+	Error        string         `json:"error,omitempty"`
+	RawShares    string         `json:"rawShares,omitempty"`
+	AssetTVL     string         `json:"assetTvl,omitempty"`
+	AssetSymbol  string         `json:"assetSymbol,omitempty"`
+	Active       bool           `json:"active,omitempty"`
 }
 
 // HTTPError describes a non-success response from snapshotd.
