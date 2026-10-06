@@ -221,6 +221,12 @@ func validateAndNormalizeAllocation(query Query, allocation *Allocation) error {
 			return err
 		}
 	}
+	if allocation.NetAssets == "" {
+		return fmt.Errorf("snapshotd: netAssets is required: %w", ErrInvalidResponse)
+	}
+	if _, ok := new(big.Int).SetString(allocation.NetAssets, 10); !ok {
+		return fmt.Errorf("snapshotd: netAssets is not a decimal integer: %w", ErrInvalidResponse)
+	}
 	for i := range allocation.Sources {
 		source := &allocation.Sources[i]
 		if source.Source == (common.Address{}) {
