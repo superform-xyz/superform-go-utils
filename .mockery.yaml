@@ -56,6 +56,11 @@ packages:
       dir: "providers/robinhood/mocks"
     interfaces:
       Client:
+  github.com/superform-xyz/superform-go-utils/providers/rhinestone:
+    config:
+      dir: "providers/rhinestone/mocks"
+    interfaces:
+      Client:
   github.com/superform-xyz/superform-go-utils/providers/sec:
     config:
       dir: "providers/sec/mocks"
