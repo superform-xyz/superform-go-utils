@@ -31,7 +31,10 @@ Method identifiers, fiat lists, decimal limit text, nullable fields and the
 chain token union are preserved. Unknown methods remain available to callers;
 this package does not assign canonical payment mechanisms or infer eligibility.
 Swapped currently returns `bank-transfer` for its manual EUR transfer;
-`google-pay` must only be offered when project discovery returns it.
+`google-pay` and `upi` are returned in `otherMethods`, separately from the
+modal's `methods` list. Both lists use `OnrampMethod`; callers should inspect
+both and only offer methods when project discovery returns them. Missing/null
+`otherMethods` remains nil, and an explicit empty array remains empty.
 
 Persephone owns trusted geography, shared capability caches, request budgets,
 USDC destination checks, payment-method mapping, FX validation and provider
