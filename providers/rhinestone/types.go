@@ -17,6 +17,8 @@ type GetOnrampOptionsResponse struct {
 	Kind     string         `json:"kind"`
 	Country  *string        `json:"country"`
 	Methods  []OnrampMethod `json:"methods"`
+	// OtherMethods contains additional Swapped methods outside the modal's list.
+	OtherMethods []OnrampMethod `json:"otherMethods"`
 }
 
 type OnrampMethod struct {
