@@ -11,7 +11,10 @@ import (
 	"strings"
 	"time"
 
+	"github.com/ethereum/go-ethereum/common"
 	"github.com/superform-xyz/superform-go-utils/pkg/http_client"
+	"github.com/superform-xyz/superform-go-utils/utils/constants"
+	"github.com/superform-xyz/superform-go-utils/utils/units"
 )
 
 const (
@@ -89,9 +92,14 @@ func (k *kyberswap) GetRoute(ctx context.Context, req RouteRequest) (*Route, err
 		return nil, err
 	}
 
+	tokenIn, tokenOut := kyberTokenAddress(req.TokenIn), kyberTokenAddress(req.TokenOut)
+	if strings.EqualFold(tokenIn, tokenOut) {
+		return nil, fmt.Errorf("from and to tokens are the same")
+	}
+
 	v := url.Values{}
-	v.Set("tokenIn", req.TokenIn)
-	v.Set("tokenOut", req.TokenOut)
+	v.Set("tokenIn", tokenIn)
+	v.Set("tokenOut", tokenOut)
 	v.Set("amountIn", req.AmountIn)
 	if len(req.ExcludedSources) > 0 {
 		v.Set("excludedSources", strings.Join(req.ExcludedSources, ","))
@@ -127,6 +135,9 @@ func (k *kyberswap) BuildRoute(ctx context.Context, req BuildRequest) (*Build, e
 	if err != nil {
 		return nil, err
 	}
+	if req.SlippageTolerance < 0 || req.SlippageTolerance > units.BpsBase {
+		return nil, fmt.Errorf("slippage tolerance %d bps is outside [0, %d]", req.SlippageTolerance, units.BpsBase)
+	}
 
 	buildReq := buildRequestJSON{
 		RouteSummary:      req.RouteSummary,
@@ -148,6 +159,7 @@ func (k *kyberswap) BuildRoute(ctx context.Context, req BuildRequest) (*Build, e
 		return nil, fmt.Errorf("kyberswap build response missing data")
 	}
 
+	buildResult.Data.AmountOutMin = units.ApplySlippageBps(buildResult.Data.AmountOut, req.SlippageTolerance)
 	return buildResult.Data, nil
 }
 
@@ -201,4 +213,13 @@ func (k *kyberswap) doJSON(ctx context.Context, method, path string, requestBody
 	}
 
 	return nil
+}
+
+// kyberTokenAddress maps the zero address to KyberSwap's 0xEeee… native sentinel.
+func kyberTokenAddress(token string) string {
+	token = strings.TrimSpace(token)
+	if common.IsHexAddress(token) && constants.IsNativeToken(token) {
+		return constants.GetNativeToken().Hex()
+	}
+	return token
 }

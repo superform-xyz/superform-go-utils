@@ -8,6 +8,8 @@ import (
 	mock "github.com/stretchr/testify/mock"
 	http_client "github.com/superform-xyz/superform-go-utils/pkg/http_client"
 
+	rate "golang.org/x/time/rate"
+
 	time "time"
 )
 
@@ -71,6 +73,54 @@ func (_c *MockClientBuilder_BuildClient_Call) RunAndReturn(run func() *http_clie
 	return _c
 }
 
+// SetAttemptTimeout provides a mock function with given fields: timeout
+func (_m *MockClientBuilder) SetAttemptTimeout(timeout time.Duration) http_client.ClientBuilder {
+	ret := _m.Called(timeout)
+
+	if len(ret) == 0 {
+		panic("no return value specified for SetAttemptTimeout")
+	}
+
+	var r0 http_client.ClientBuilder
+	if rf, ok := ret.Get(0).(func(time.Duration) http_client.ClientBuilder); ok {
+		r0 = rf(timeout)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(http_client.ClientBuilder)
+		}
+	}
+
+	return r0
+}
+
+// MockClientBuilder_SetAttemptTimeout_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'SetAttemptTimeout'
+type MockClientBuilder_SetAttemptTimeout_Call struct {
+	*mock.Call
+}
+
+// SetAttemptTimeout is a helper method to define mock.On call
+//   - timeout time.Duration
+func (_e *MockClientBuilder_Expecter) SetAttemptTimeout(timeout interface{}) *MockClientBuilder_SetAttemptTimeout_Call {
+	return &MockClientBuilder_SetAttemptTimeout_Call{Call: _e.mock.On("SetAttemptTimeout", timeout)}
+}
+
+func (_c *MockClientBuilder_SetAttemptTimeout_Call) Run(run func(timeout time.Duration)) *MockClientBuilder_SetAttemptTimeout_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(time.Duration))
+	})
+	return _c
+}
+
+func (_c *MockClientBuilder_SetAttemptTimeout_Call) Return(_a0 http_client.ClientBuilder) *MockClientBuilder_SetAttemptTimeout_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *MockClientBuilder_SetAttemptTimeout_Call) RunAndReturn(run func(time.Duration) http_client.ClientBuilder) *MockClientBuilder_SetAttemptTimeout_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // SetAuth provides a mock function with given fields: key, value
 func (_m *MockClientBuilder) SetAuth(key string, value string) http_client.ClientBuilder {
 	ret := _m.Called(key, value)
@@ -116,6 +166,246 @@ func (_c *MockClientBuilder_SetAuth_Call) Return(_a0 http_client.ClientBuilder) 
 }
 
 func (_c *MockClientBuilder_SetAuth_Call) RunAndReturn(run func(string, string) http_client.ClientBuilder) *MockClientBuilder_SetAuth_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// SetHeader provides a mock function with given fields: key, value
+func (_m *MockClientBuilder) SetHeader(key string, value string) http_client.ClientBuilder {
+	ret := _m.Called(key, value)
+
+	if len(ret) == 0 {
+		panic("no return value specified for SetHeader")
+	}
+
+	var r0 http_client.ClientBuilder
+	if rf, ok := ret.Get(0).(func(string, string) http_client.ClientBuilder); ok {
+		r0 = rf(key, value)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(http_client.ClientBuilder)
+		}
+	}
+
+	return r0
+}
+
+// MockClientBuilder_SetHeader_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'SetHeader'
+type MockClientBuilder_SetHeader_Call struct {
+	*mock.Call
+}
+
+// SetHeader is a helper method to define mock.On call
+//   - key string
+//   - value string
+func (_e *MockClientBuilder_Expecter) SetHeader(key interface{}, value interface{}) *MockClientBuilder_SetHeader_Call {
+	return &MockClientBuilder_SetHeader_Call{Call: _e.mock.On("SetHeader", key, value)}
+}
+
+func (_c *MockClientBuilder_SetHeader_Call) Run(run func(key string, value string)) *MockClientBuilder_SetHeader_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(string), args[1].(string))
+	})
+	return _c
+}
+
+func (_c *MockClientBuilder_SetHeader_Call) Return(_a0 http_client.ClientBuilder) *MockClientBuilder_SetHeader_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *MockClientBuilder_SetHeader_Call) RunAndReturn(run func(string, string) http_client.ClientBuilder) *MockClientBuilder_SetHeader_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// SetMaxResponseBytes provides a mock function with given fields: max
+func (_m *MockClientBuilder) SetMaxResponseBytes(max int64) http_client.ClientBuilder {
+	ret := _m.Called(max)
+
+	if len(ret) == 0 {
+		panic("no return value specified for SetMaxResponseBytes")
+	}
+
+	var r0 http_client.ClientBuilder
+	if rf, ok := ret.Get(0).(func(int64) http_client.ClientBuilder); ok {
+		r0 = rf(max)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(http_client.ClientBuilder)
+		}
+	}
+
+	return r0
+}
+
+// MockClientBuilder_SetMaxResponseBytes_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'SetMaxResponseBytes'
+type MockClientBuilder_SetMaxResponseBytes_Call struct {
+	*mock.Call
+}
+
+// SetMaxResponseBytes is a helper method to define mock.On call
+//   - max int64
+func (_e *MockClientBuilder_Expecter) SetMaxResponseBytes(max interface{}) *MockClientBuilder_SetMaxResponseBytes_Call {
+	return &MockClientBuilder_SetMaxResponseBytes_Call{Call: _e.mock.On("SetMaxResponseBytes", max)}
+}
+
+func (_c *MockClientBuilder_SetMaxResponseBytes_Call) Run(run func(max int64)) *MockClientBuilder_SetMaxResponseBytes_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(int64))
+	})
+	return _c
+}
+
+func (_c *MockClientBuilder_SetMaxResponseBytes_Call) Return(_a0 http_client.ClientBuilder) *MockClientBuilder_SetMaxResponseBytes_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *MockClientBuilder_SetMaxResponseBytes_Call) RunAndReturn(run func(int64) http_client.ClientBuilder) *MockClientBuilder_SetMaxResponseBytes_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// SetMaxRetryAfter provides a mock function with given fields: max
+func (_m *MockClientBuilder) SetMaxRetryAfter(max time.Duration) http_client.ClientBuilder {
+	ret := _m.Called(max)
+
+	if len(ret) == 0 {
+		panic("no return value specified for SetMaxRetryAfter")
+	}
+
+	var r0 http_client.ClientBuilder
+	if rf, ok := ret.Get(0).(func(time.Duration) http_client.ClientBuilder); ok {
+		r0 = rf(max)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(http_client.ClientBuilder)
+		}
+	}
+
+	return r0
+}
+
+// MockClientBuilder_SetMaxRetryAfter_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'SetMaxRetryAfter'
+type MockClientBuilder_SetMaxRetryAfter_Call struct {
+	*mock.Call
+}
+
+// SetMaxRetryAfter is a helper method to define mock.On call
+//   - max time.Duration
+func (_e *MockClientBuilder_Expecter) SetMaxRetryAfter(max interface{}) *MockClientBuilder_SetMaxRetryAfter_Call {
+	return &MockClientBuilder_SetMaxRetryAfter_Call{Call: _e.mock.On("SetMaxRetryAfter", max)}
+}
+
+func (_c *MockClientBuilder_SetMaxRetryAfter_Call) Run(run func(max time.Duration)) *MockClientBuilder_SetMaxRetryAfter_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(time.Duration))
+	})
+	return _c
+}
+
+func (_c *MockClientBuilder_SetMaxRetryAfter_Call) Return(_a0 http_client.ClientBuilder) *MockClientBuilder_SetMaxRetryAfter_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *MockClientBuilder_SetMaxRetryAfter_Call) RunAndReturn(run func(time.Duration) http_client.ClientBuilder) *MockClientBuilder_SetMaxRetryAfter_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// SetNoRedirect provides a mock function with no fields
+func (_m *MockClientBuilder) SetNoRedirect() http_client.ClientBuilder {
+	ret := _m.Called()
+
+	if len(ret) == 0 {
+		panic("no return value specified for SetNoRedirect")
+	}
+
+	var r0 http_client.ClientBuilder
+	if rf, ok := ret.Get(0).(func() http_client.ClientBuilder); ok {
+		r0 = rf()
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(http_client.ClientBuilder)
+		}
+	}
+
+	return r0
+}
+
+// MockClientBuilder_SetNoRedirect_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'SetNoRedirect'
+type MockClientBuilder_SetNoRedirect_Call struct {
+	*mock.Call
+}
+
+// SetNoRedirect is a helper method to define mock.On call
+func (_e *MockClientBuilder_Expecter) SetNoRedirect() *MockClientBuilder_SetNoRedirect_Call {
+	return &MockClientBuilder_SetNoRedirect_Call{Call: _e.mock.On("SetNoRedirect")}
+}
+
+func (_c *MockClientBuilder_SetNoRedirect_Call) Run(run func()) *MockClientBuilder_SetNoRedirect_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run()
+	})
+	return _c
+}
+
+func (_c *MockClientBuilder_SetNoRedirect_Call) Return(_a0 http_client.ClientBuilder) *MockClientBuilder_SetNoRedirect_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *MockClientBuilder_SetNoRedirect_Call) RunAndReturn(run func() http_client.ClientBuilder) *MockClientBuilder_SetNoRedirect_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// SetRateLimiter provides a mock function with given fields: limiter
+func (_m *MockClientBuilder) SetRateLimiter(limiter *rate.Limiter) http_client.ClientBuilder {
+	ret := _m.Called(limiter)
+
+	if len(ret) == 0 {
+		panic("no return value specified for SetRateLimiter")
+	}
+
+	var r0 http_client.ClientBuilder
+	if rf, ok := ret.Get(0).(func(*rate.Limiter) http_client.ClientBuilder); ok {
+		r0 = rf(limiter)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(http_client.ClientBuilder)
+		}
+	}
+
+	return r0
+}
+
+// MockClientBuilder_SetRateLimiter_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'SetRateLimiter'
+type MockClientBuilder_SetRateLimiter_Call struct {
+	*mock.Call
+}
+
+// SetRateLimiter is a helper method to define mock.On call
+//   - limiter *rate.Limiter
+func (_e *MockClientBuilder_Expecter) SetRateLimiter(limiter interface{}) *MockClientBuilder_SetRateLimiter_Call {
+	return &MockClientBuilder_SetRateLimiter_Call{Call: _e.mock.On("SetRateLimiter", limiter)}
+}
+
+func (_c *MockClientBuilder_SetRateLimiter_Call) Run(run func(limiter *rate.Limiter)) *MockClientBuilder_SetRateLimiter_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(*rate.Limiter))
+	})
+	return _c
+}
+
+func (_c *MockClientBuilder_SetRateLimiter_Call) Return(_a0 http_client.ClientBuilder) *MockClientBuilder_SetRateLimiter_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *MockClientBuilder_SetRateLimiter_Call) RunAndReturn(run func(*rate.Limiter) http_client.ClientBuilder) *MockClientBuilder_SetRateLimiter_Call {
 	_c.Call.Return(run)
 	return _c
 }
@@ -261,6 +551,54 @@ func (_c *MockClientBuilder_SetTransportWrapper_Call) Return(_a0 http_client.Cli
 }
 
 func (_c *MockClientBuilder_SetTransportWrapper_Call) RunAndReturn(run func(func(http.RoundTripper) http.RoundTripper) http_client.ClientBuilder) *MockClientBuilder_SetTransportWrapper_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// SetUserAgent provides a mock function with given fields: userAgent
+func (_m *MockClientBuilder) SetUserAgent(userAgent string) http_client.ClientBuilder {
+	ret := _m.Called(userAgent)
+
+	if len(ret) == 0 {
+		panic("no return value specified for SetUserAgent")
+	}
+
+	var r0 http_client.ClientBuilder
+	if rf, ok := ret.Get(0).(func(string) http_client.ClientBuilder); ok {
+		r0 = rf(userAgent)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(http_client.ClientBuilder)
+		}
+	}
+
+	return r0
+}
+
+// MockClientBuilder_SetUserAgent_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'SetUserAgent'
+type MockClientBuilder_SetUserAgent_Call struct {
+	*mock.Call
+}
+
+// SetUserAgent is a helper method to define mock.On call
+//   - userAgent string
+func (_e *MockClientBuilder_Expecter) SetUserAgent(userAgent interface{}) *MockClientBuilder_SetUserAgent_Call {
+	return &MockClientBuilder_SetUserAgent_Call{Call: _e.mock.On("SetUserAgent", userAgent)}
+}
+
+func (_c *MockClientBuilder_SetUserAgent_Call) Run(run func(userAgent string)) *MockClientBuilder_SetUserAgent_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(string))
+	})
+	return _c
+}
+
+func (_c *MockClientBuilder_SetUserAgent_Call) Return(_a0 http_client.ClientBuilder) *MockClientBuilder_SetUserAgent_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *MockClientBuilder_SetUserAgent_Call) RunAndReturn(run func(string) http_client.ClientBuilder) *MockClientBuilder_SetUserAgent_Call {
 	_c.Call.Return(run)
 	return _c
 }

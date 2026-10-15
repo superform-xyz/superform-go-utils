@@ -6,6 +6,7 @@ import (
 	"math/big"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -310,4 +311,45 @@ func writeJSON(t *testing.T, w http.ResponseWriter, v any) {
 	t.Helper()
 	w.Header().Set("Content-Type", "application/json")
 	require.NoError(t, json.NewEncoder(w).Encode(v))
+}
+
+func TestGetSwapNormalizesTokensAndSlippage(t *testing.T) {
+	outputToken := common.HexToAddress("0x657097cC15fdEc9e383dB8628B57eA4a763F2ba0")
+	client := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, constants.GetNullAddress().Hex(), r.URL.Query().Get("inTokenAddress"))
+		assert.Equal(t, "0.25", r.URL.Query().Get("slippage"))
+		writeJSON(t, w, swapResponseFixture{
+			Code: 200,
+			Data: &swapDataFixture{InAmount: "1", OutAmount: "2", MinOutAmount: "1", To: testRouterAddress, Data: "0x90411a32"},
+		})
+	})
+
+	_, err := client.GetSwap(context.Background(), SwapRequest{
+		ChainID:         constants.FlareChainID,
+		InTokenAddress:  strings.ToLower(constants.GetNativeToken().Hex()),
+		OutTokenAddress: outputToken.Hex(),
+		AmountDecimals:  "1",
+		SlippageBps:     25,
+	})
+	require.NoError(t, err)
+
+	_, err = client.GetSwap(context.Background(), SwapRequest{
+		InTokenAddress:  constants.GetNativeToken().Hex(),
+		OutTokenAddress: constants.GetNullAddress().Hex(),
+	})
+	require.ErrorContains(t, err, "same")
+}
+
+func TestSlippageBpsToPercent(t *testing.T) {
+	for bps, want := range map[int]string{0: "0", 1: "0.01", 25: "0.25", 50: "0.5", 100: "1", 150: "1.5", 1234: "12.34"} {
+		assert.Equal(t, want, SlippageBpsToPercent(bps), bps)
+	}
+}
+
+func TestSwapUnmarshalJSONRejectsEmptyRouter(t *testing.T) {
+	for _, to := range []string{"", "0x0000000000000000000000000000000000000000", "nope"} {
+		var swap Swap
+		err := json.Unmarshal([]byte(`{"inAmount":"1","outAmount":"2","minOutAmount":"1","data":"0x01","to":"`+to+`"}`), &swap)
+		require.ErrorContains(t, err, "empty router", to)
+	}
 }

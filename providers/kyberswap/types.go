@@ -29,6 +29,7 @@ var chainIDToName = map[uint64]string{
 }
 
 // RouteRequest contains the inputs for KyberSwap's GET /routes endpoint.
+// TokenIn and TokenOut may use either the zero address or 0xEeee… for the native token.
 type RouteRequest struct {
 	ChainID             uint64
 	TokenIn             string
@@ -56,6 +57,7 @@ type routeData struct {
 }
 
 // BuildRequest contains the inputs for KyberSwap's POST /route/build endpoint.
+// SlippageTolerance is in basis points (1 = 0.01%).
 type BuildRequest struct {
 	ChainID           uint64
 	RouteSummary      json.RawMessage
@@ -80,6 +82,7 @@ type buildResponse struct {
 // Build contains parsed transaction data returned by KyberSwap's build endpoint.
 type Build struct {
 	AmountOut        *big.Int
+	AmountOutMin     *big.Int // AmountOut reduced by the request SlippageTolerance (bps)
 	TxData           []byte
 	RouterAddress    common.Address
 	TransactionValue *big.Int
@@ -100,7 +103,7 @@ func (b *Build) UnmarshalJSON(data []byte) error {
 	}
 
 	amountOut, ok := new(big.Int).SetString(aux.AmountOut, 10)
-	if !ok {
+	if !ok || amountOut.Sign() <= 0 {
 		return fmt.Errorf("failed to parse amountOut: %s", aux.AmountOut)
 	}
 

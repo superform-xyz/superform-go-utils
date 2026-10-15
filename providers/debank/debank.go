@@ -39,11 +39,12 @@ type Debank interface {
 
 // debank implements the Debank interface.
 type debank struct {
-	accessKey  string
-	baseUrl    string
-	client     *http_client.Client
-	maxRetries *uint
-	retryDelay *time.Duration
+	accessKey     string
+	baseUrl       string
+	client        *http_client.Client
+	maxRetries    *uint
+	retryDelay    *time.Duration
+	wrapTransport func(http.RoundTripper) http.RoundTripper
 }
 
 var _ Debank = (*debank)(nil)
@@ -74,6 +75,13 @@ func WithRetry(maxRetries uint, retryDelay time.Duration) Option {
 	}
 }
 
+// WithTransportWrapper wraps each HTTP attempt, e.g. for metrics. Ignored with WithHTTPClient.
+func WithTransportWrapper(wrapper func(http.RoundTripper) http.RoundTripper) Option {
+	return func(d *debank) {
+		d.wrapTransport = wrapper
+	}
+}
+
 // New creates a new Debank service.
 func New(accessKey string, opts ...Option) (Debank, error) {
 	accessKey = strings.TrimSpace(accessKey)
@@ -93,6 +101,9 @@ func New(accessKey string, opts ...Option) (Debank, error) {
 		builder := http_client.NewClientBuilder().SetRetry(0, 0)
 		if d.maxRetries != nil && d.retryDelay != nil {
 			builder.SetRetry(*d.maxRetries, *d.retryDelay)
+		}
+		if d.wrapTransport != nil {
+			builder.SetTransportWrapper(d.wrapTransport)
 		}
 		d.client = builder.BuildClient()
 	}
@@ -231,16 +242,26 @@ func (d *debank) GetTokenBalances(ctx context.Context, address string, filterTok
 	return dbt, nil
 }
 
-// GetTokens retrieves metadata/pricing for up to 100 tokens on one chain.
+// GetTokens retrieves metadata/pricing for tokens on one chain, batching
+// requests at Debank's limit of 100 ids per call.
 func (d *debank) GetTokens(ctx context.Context, chainID uint64, tokenAddresses []common.Address) ([]Token, error) {
 	chainName, ids, err := debankTokenIDList(chainID, tokenAddresses)
 	if err != nil {
 		return nil, err
 	}
-	if len(ids) == 0 {
-		return []Token{}, nil
-	}
 
+	out := make([]Token, 0, len(ids))
+	for _, batch := range filter.Chunk(ids, maxTokenListByIDs) {
+		tokens, err := d.getTokenBatch(ctx, chainName, batch)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, tokens...)
+	}
+	return out, nil
+}
+
+func (d *debank) getTokenBatch(ctx context.Context, chainName string, ids []string) ([]Token, error) {
 	path := fmt.Sprintf("%s/token/list_by_ids?chain_id=%s&ids=%s", d.baseUrl, url.QueryEscape(chainName), url.QueryEscape(strings.Join(ids, ",")))
 	req, err := d.newRequest(ctx, path)
 	if err != nil {
@@ -390,8 +411,5 @@ func debankTokenIDList(chainID uint64, tokenAddresses []common.Address) (string,
 		ids = append(ids, tokenID)
 	}
 	sort.Strings(ids)
-	if len(ids) > maxTokenListByIDs {
-		return "", nil, fmt.Errorf("debank token/list_by_ids supports at most %d ids, got %d", maxTokenListByIDs, len(ids))
-	}
 	return chainName, ids, nil
 }

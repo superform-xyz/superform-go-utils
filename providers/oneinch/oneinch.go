@@ -16,6 +16,7 @@ import (
 
 	"github.com/superform-xyz/superform-go-utils/pkg/http_client"
 	"github.com/superform-xyz/superform-go-utils/utils/constants"
+	"github.com/superform-xyz/superform-go-utils/utils/units"
 )
 
 const (
@@ -140,7 +141,7 @@ func (o *oneInch) GetQuote(ctx context.Context, req QuoteRequest) (*Quote, error
 		return nil, err
 	}
 
-	quote.ToAmountMin = scaleBigInt(quote.DstAmount, -req.Slippage)
+	quote.ToAmountMin = units.ScaleByPercent(quote.DstAmount, -req.Slippage)
 	quote.Router = o.GetRouter(req.ChainID)
 	quote.ChainID = req.ChainID
 	quote.FromToken = req.FromToken
@@ -182,6 +183,7 @@ func (o *oneInch) GetSwap(ctx context.Context, req SwapRequest) (*Swap, error) {
 	if err := o.getJSON(ctx, fmt.Sprintf("/swap/v6.0/%d/swap?%s", req.ChainID, v.Encode()), "1inch swap", &swap); err != nil {
 		return nil, err
 	}
+	swap.ToAmountMin = units.ScaleByPercent(swap.DstAmount, -req.Slippage)
 
 	return &swap, nil
 }

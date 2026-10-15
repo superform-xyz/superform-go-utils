@@ -440,3 +440,29 @@ func TestDefiLlama_Integration(t *testing.T) {
 		assert.Nil(t, coin)
 	})
 }
+
+func TestCoinUnmarshalPrice(t *testing.T) {
+	cases := map[string]float64{
+		`{"price":1.25,"symbol":"USDC","decimals":6}`:   1.25,
+		`{"price":"1.25","symbol":"USDC","decimals":6}`: 1.25,
+		`{"price":null,"symbol":"USDC","decimals":6}`:   0,
+		`{"price":"","symbol":"USDC","decimals":6}`:     0,
+		`{"symbol":"USDC","decimals":6}`:                0,
+	}
+	for body, want := range cases {
+		var c Coin
+		require.NoError(t, json.Unmarshal([]byte(body), &c), body)
+		assert.Equal(t, want, c.Price, body)
+		assert.Equal(t, "USDC", c.Symbol, body)
+		assert.Equal(t, int32(6), c.Decimals, body)
+	}
+
+	var c Coin
+	assert.Error(t, json.Unmarshal([]byte(`{"price":"abc"}`), &c))
+}
+
+func TestChainSlugs(t *testing.T) {
+	for chainID, slug := range map[uint64]string{100: "xdai", 146: "sonic", 480: "worldchain", 5000: "mantle", 59144: "linea", 80094: "berachain", 988: "stable"} {
+		assert.Equal(t, slug, chainToNameMap[chainID])
+	}
+}

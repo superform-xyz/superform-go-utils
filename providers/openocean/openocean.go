@@ -78,12 +78,21 @@ func New(apiKey string, opts ...Option) (Client, error) {
 
 // GetSwap fetches executable swap transaction data from OpenOcean.
 func (o *openOcean) GetSwap(ctx context.Context, req SwapRequest) (*Swap, error) {
+	inToken, outToken := openOceanTokenAddress(req.InTokenAddress), openOceanTokenAddress(req.OutTokenAddress)
+	if inToken != "" && strings.EqualFold(inToken, outToken) {
+		return nil, fmt.Errorf("from and to tokens are the same")
+	}
+	slippage := req.Slippage
+	if slippage == "" && req.SlippageBps > 0 {
+		slippage = SlippageBpsToPercent(req.SlippageBps)
+	}
+
 	v := url.Values{}
 	v.Set("chain", strconv.FormatUint(req.ChainID, 10))
-	v.Set("inTokenAddress", req.InTokenAddress)
-	v.Set("outTokenAddress", req.OutTokenAddress)
+	v.Set("inTokenAddress", inToken)
+	v.Set("outTokenAddress", outToken)
 	v.Set("amountDecimals", req.AmountDecimals)
-	v.Set("slippage", req.Slippage)
+	v.Set("slippage", slippage)
 	v.Set("account", req.Account)
 	v.Set("enabledDexIds", req.EnabledDexIDs)
 	v.Set("gasPriceDecimals", req.GasPriceDecimals)
