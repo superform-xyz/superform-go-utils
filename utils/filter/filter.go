@@ -1,5 +1,10 @@
 package filter
 
+import (
+	"cmp"
+	"slices"
+)
+
 // Filter accepts an array of any type and filters
 // the list of elements according to the boolean value of the predicate.
 func Filter[T any](ss []T, test func(T) bool) (ret []T) {
@@ -70,4 +75,36 @@ func IsExactlyOneBooleanTrue(boolAry []bool) bool {
 		return !areTwoTrue
 	}
 	return true
+}
+
+// Chunk splits ss into consecutive slices of at most size elements.
+// A non-positive size returns ss as a single chunk. The chunks share ss's backing array.
+func Chunk[T any](ss []T, size int) [][]T {
+	if len(ss) == 0 {
+		return nil
+	}
+	if size <= 0 {
+		size = len(ss)
+	}
+	out := make([][]T, 0, (len(ss)+size-1)/size)
+	for i := 0; i < len(ss); i += size {
+		out = append(out, ss[i:min(i+size, len(ss)):min(i+size, len(ss))])
+	}
+	return out
+}
+
+// Keys returns the keys of m in unspecified order.
+func Keys[K comparable, V any](m map[K]V) []K {
+	out := make([]K, 0, len(m))
+	for k := range m {
+		out = append(out, k)
+	}
+	return out
+}
+
+// SortedKeys returns the keys of m in ascending order.
+func SortedKeys[K cmp.Ordered, V any](m map[K]V) []K {
+	out := Keys(m)
+	slices.Sort(out)
+	return out
 }

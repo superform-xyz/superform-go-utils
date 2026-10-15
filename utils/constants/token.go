@@ -1,6 +1,8 @@
 package constants
 
 import (
+	"strings"
+
 	"github.com/ethereum/go-ethereum/common"
 )
 
@@ -27,7 +29,8 @@ func IsNativeToken[T common.Address | string | []byte](token T) bool {
 	case common.Address:
 		return v.Cmp(nativeToken) == 0 || v.Cmp(nullAddress) == 0
 	case string:
-		return v == nativeToken.Hex() || v == nullAddress.Hex()
+		addr, ok := parseHexAddress(v)
+		return ok && (addr == nativeToken || addr == nullAddress)
 	case []byte:
 		return common.BytesToAddress(v).Cmp(nativeToken) == 0 || common.BytesToAddress(v).Cmp(nullAddress) == 0
 	default:
@@ -41,12 +44,22 @@ func IsNullAddress[T common.Address | string | []byte](token T) bool {
 	case common.Address:
 		return v.Cmp(nullAddress) == 0
 	case string:
-		return v == nullAddress.Hex()
+		addr, ok := parseHexAddress(v)
+		return ok && addr == nullAddress
 	case []byte:
 		return common.BytesToAddress(v).Cmp(nullAddress) == 0
 	default:
 		return false
 	}
+}
+
+// parseHexAddress parses a hex address case-insensitively, rejecting malformed input.
+func parseHexAddress(s string) (common.Address, bool) {
+	s = strings.TrimSpace(s)
+	if !common.IsHexAddress(s) {
+		return common.Address{}, false
+	}
+	return common.HexToAddress(s), true
 }
 
 // ChecksumAddress converts a raw address to a checksum address.

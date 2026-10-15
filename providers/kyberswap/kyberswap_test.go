@@ -6,6 +6,7 @@ import (
 	"math/big"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -241,6 +242,17 @@ func TestBuildRoute(t *testing.T) {
 		assert.Equal(t, common.FromHex("0xabcdef0123456789"), build.TxData)
 		assert.Equal(t, common.HexToAddress(testRouterAddress), build.RouterAddress)
 		assert.Equal(t, "100", build.TransactionValue.String())
+		assert.Equal(t, "497500000000000000", build.AmountOutMin.String(), "AmountOut less 50 bps")
+	})
+
+	t.Run("rejects slippage outside bps range", func(t *testing.T) {
+		client := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+			t.Fatal("server should not be called")
+		})
+		for _, bps := range []int{-1, 10001} {
+			_, err := client.BuildRoute(context.Background(), BuildRequest{ChainID: constants.MainnetChainID, SlippageTolerance: bps})
+			require.ErrorContains(t, err, "outside")
+		}
 	})
 
 	t.Run("api error", func(t *testing.T) {
@@ -398,4 +410,29 @@ func writeJSON(t *testing.T, w http.ResponseWriter, v any) {
 	t.Helper()
 	w.Header().Set("Content-Type", "application/json")
 	require.NoError(t, json.NewEncoder(w).Encode(v))
+}
+
+func TestGetRouteNormalizesNativeToken(t *testing.T) {
+	usdc := "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48"
+	client := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, constants.GetNativeToken().Hex(), r.URL.Query().Get("tokenIn"))
+		assert.Equal(t, usdc, r.URL.Query().Get("tokenOut"))
+		writeJSON(t, w, map[string]any{"code": 0, "data": map[string]any{"routeSummary": map[string]string{"amountOut": "1"}, "routerAddress": testRouterAddress}})
+	})
+
+	_, err := client.GetRoute(context.Background(), RouteRequest{
+		ChainID:  constants.MainnetChainID,
+		TokenIn:  constants.GetNullAddress().Hex(),
+		TokenOut: usdc,
+		AmountIn: "1",
+	})
+	require.NoError(t, err)
+
+	_, err = client.GetRoute(context.Background(), RouteRequest{
+		ChainID:  constants.MainnetChainID,
+		TokenIn:  constants.GetNullAddress().Hex(),
+		TokenOut: strings.ToLower(constants.GetNativeToken().Hex()),
+		AmountIn: "1",
+	})
+	require.ErrorContains(t, err, "same")
 }

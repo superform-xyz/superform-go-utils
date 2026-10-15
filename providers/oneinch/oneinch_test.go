@@ -235,6 +235,7 @@ func TestGetSwap(t *testing.T) {
 		require.NoError(t, err)
 		require.NotNil(t, swap)
 		assert.Equal(t, "998000", swap.DstAmount.String())
+		assert.Equal(t, "988020", swap.ToAmountMin.String(), "DstAmount less 1% slippage")
 		assert.Equal(t, testRouter, swap.Tx.To)
 		assert.Equal(t, common.FromHex("0xabcdef"), swap.Tx.Data)
 		assert.Equal(t, "0", swap.Tx.Value.String())

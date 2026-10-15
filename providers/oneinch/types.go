@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"math/big"
-	"strconv"
 	"strings"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -56,9 +55,10 @@ type Token struct {
 
 // Swap contains parsed executable transaction data returned by 1inch's swap endpoint.
 type Swap struct {
-	DstAmount *big.Int
-	Tx        Transaction
-	Protocols []string
+	DstAmount   *big.Int
+	ToAmountMin *big.Int // DstAmount reduced by the request slippage
+	Tx          Transaction
+	Protocols   []string
 }
 
 type Transaction struct {
@@ -162,20 +162,4 @@ func parseDecimalOrHexBigInt(input string) (*big.Int, bool) {
 		return new(big.Int).SetString(input[2:], 16)
 	}
 	return new(big.Int).SetString(input, 10)
-}
-
-func scaleBigInt(amount *big.Int, scale float64) *big.Int {
-	if amount == nil {
-		return big.NewInt(0)
-	}
-
-	scaleRat := new(big.Rat)
-	if _, ok := scaleRat.SetString(strconv.FormatFloat(scale, 'f', -1, 64)); !ok {
-		return big.NewInt(0)
-	}
-	scaleRat.Quo(scaleRat, big.NewRat(100, 1))
-
-	factor := new(big.Rat).Add(big.NewRat(1, 1), scaleRat)
-	scaled := new(big.Rat).Mul(new(big.Rat).SetInt(amount), factor)
-	return new(big.Int).Quo(scaled.Num(), scaled.Denom())
 }

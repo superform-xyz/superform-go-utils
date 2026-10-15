@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -446,21 +447,64 @@ func TestGetTokens(t *testing.T) {
 	assert.True(t, tokens[1].LowCreditScore)
 }
 
-func TestGetTokensRejectsOversizedBatch(t *testing.T) {
+func TestGetTokensBatchesAtVendorLimit(t *testing.T) {
+	var batchSizes []int
 	d := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
-		t.Fatal("server should not be called for oversized batch")
+		ids := strings.Split(r.URL.Query().Get("ids"), ",")
+		batchSizes = append(batchSizes, len(ids))
+		out := make([]debankTokenJSON, 0, len(ids))
+		for _, id := range ids {
+			out = append(out, debankTokenJSON{ID: id, Chain: "eth", RawAmount: big.NewInt(0)})
+		}
+		jsonOK(t, w, out)
 	})
 
-	addresses := make([]common.Address, maxTokenListByIDs+1)
+	addresses := make([]common.Address, maxTokenListByIDs*2+1)
 	for i := range addresses {
 		addresses[i] = common.BigToAddress(big.NewInt(int64(i + 1)))
 	}
 
 	tokens, err := d.GetTokens(context.Background(), constants.MainnetChainID, addresses)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "supports at most 100 ids")
-	assert.Nil(t, tokens)
+	require.NoError(t, err)
+	assert.Len(t, tokens, len(addresses))
+	assert.Equal(t, []int{maxTokenListByIDs, maxTokenListByIDs, 1}, batchSizes)
 }
+
+func TestGetTokensEmpty(t *testing.T) {
+	d := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		t.Fatal("server should not be called without ids")
+	})
+	tokens, err := d.GetTokens(context.Background(), constants.MainnetChainID, nil)
+	require.NoError(t, err)
+	assert.Empty(t, tokens)
+}
+
+func TestWithTransportWrapper(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		jsonOK(t, w, AccountCredits{})
+	}))
+	t.Cleanup(server.Close)
+
+	var seen int
+	client, err := New("test-key",
+		WithBaseURL(server.URL),
+		WithTransportWrapper(func(base http.RoundTripper) http.RoundTripper {
+			return roundTripFunc(func(r *http.Request) (*http.Response, error) {
+				seen++
+				assert.Equal(t, "test-key", r.Header.Get("AccessKey"))
+				return base.RoundTrip(r)
+			})
+		}),
+	)
+	require.NoError(t, err)
+	_, err = client.GetAccountCredits(context.Background())
+	require.NoError(t, err)
+	assert.Equal(t, 1, seen)
+}
+
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
 
 func TestGetAccountCredits(t *testing.T) {
 	d := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
