@@ -30,18 +30,25 @@ type Zerion interface {
 }
 
 type zerion struct {
-	apiKey       string
-	baseURL      string
-	client       *http_client.Client
-	timeout      *time.Duration
-	maxRetries   *uint
-	retryDelay   *time.Duration
-	hiddenChains string
+	apiKey        string
+	baseURL       string
+	client        *http_client.Client
+	timeout       *time.Duration
+	maxRetries    *uint
+	retryDelay    *time.Duration
+	hiddenChains  string
+	wrapTransport func(http.RoundTripper) http.RoundTripper
 }
 
 var _ Zerion = (*zerion)(nil)
 
 type Option func(*zerion)
+
+// WithTransportWrapper observes or bounds each HTTP attempt, including retries.
+// The wrapper runs underneath the retry transport and must preserve cancellation.
+func WithTransportWrapper(wrapper func(http.RoundTripper) http.RoundTripper) Option {
+	return func(z *zerion) { z.wrapTransport = wrapper }
+}
 
 func WithBaseURL(baseURL string) Option {
 	return func(z *zerion) {
@@ -105,6 +112,9 @@ func New(apiKey string, opts ...Option) (Zerion, error) {
 	if z.client == nil {
 		builder := http_client.NewClientBuilder().SetRetry(0, 0)
 		builder.SetAuth("Authorization", fmt.Sprintf("Basic %s", z.apiKey))
+		if z.wrapTransport != nil {
+			builder.SetTransportWrapper(z.wrapTransport)
+		}
 		if z.timeout != nil {
 			builder.SetTimeout(*z.timeout)
 		}
