@@ -27,9 +27,11 @@ fmt: check-go
 
 tidy: check-go
 	go mod tidy
+	cd evm && go mod tidy
 
 test: check-go
 	CGO_ENABLED=$(CGO_ENABLED) go test ./...
+	cd evm && CGO_ENABLED=$(CGO_ENABLED) go test -short ./...
 
 generate: generate-mocks
 
