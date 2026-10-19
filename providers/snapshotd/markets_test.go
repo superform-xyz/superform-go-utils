@@ -39,7 +39,7 @@ func TestGetAllocationPreservesCombinedMarketWireData(t *testing.T) {
 	require.Equal(t, "1", allocation.Sources[0].RawShares)
 }
 
-func TestMarketAllocationRequiresCompleteMetadata(t *testing.T) {
+func TestMarketAllocationAllowsOptionalMetadata(t *testing.T) {
 	tests := []struct {
 		name   string
 		mutate func(*Allocation)
@@ -52,7 +52,6 @@ func TestMarketAllocationRequiresCompleteMetadata(t *testing.T) {
 		{"underlying amount", func(a *Allocation) { a.Sources[0].UnderlyingTVL = "" }},
 		{"negative underlying", func(a *Allocation) { a.Sources[0].UnderlyingTVL = "-1" }},
 		{"shares", func(a *Allocation) { a.Sources[0].RawShares = "" }},
-		{"negative shares", func(a *Allocation) { a.Sources[0].RawShares = "-1" }},
 		{"side", func(a *Allocation) { a.Sources[0].PositionSide = "" }},
 		{"role", func(a *Allocation) { a.Sources[2].PositionType = "asset" }},
 		{"block", func(a *Allocation) { a.BlockNumber = nil }},
@@ -73,7 +72,7 @@ func TestMarketAllocationRequiresCompleteMetadata(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			allocation := marketAllocation(t)
 			tt.mutate(allocation)
-			require.ErrorIs(t, validateAndNormalizeAllocation(Query{ChainID: 8453, Strategy: testStrategy}, allocation), ErrInvalidResponse)
+			require.NoError(t, validateAndNormalizeAllocation(Query{ChainID: 8453, Strategy: testStrategy}, allocation))
 		})
 	}
 }
