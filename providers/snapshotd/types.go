@@ -29,30 +29,39 @@ type PPSResult struct {
 
 // Allocation contains vault-asset-normalized balances for a strategy and its sources.
 type Allocation struct {
-	Strategy      common.Address `json:"strategy"`
-	ChainID       uint64         `json:"chainId"`
-	BlockNumber   *uint64        `json:"blockNumber,omitempty"`
-	Asset         common.Address `json:"asset"`
-	AssetSymbol   string         `json:"assetSymbol"`
-	AssetDecimals uint8          `json:"assetDecimals"`
-	TotalAssets   string         `json:"totalAssets,omitempty"`
-	NetAssets     string         `json:"netAssets"`
-	TotalSupply   string         `json:"totalSupply,omitempty"`
-	IdleBalance   string         `json:"idleBalance,omitempty"`
-	Sources       []Source       `json:"sources"`
+	Strategy         common.Address `json:"strategy"`
+	ChainID          uint64         `json:"chainId"`
+	BlockNumber      *uint64        `json:"blockNumber,omitempty"`
+	Asset            common.Address `json:"asset"`
+	AssetSymbol      string         `json:"assetSymbol"`
+	AssetDecimals    uint8          `json:"assetDecimals"`
+	TotalAssets      string         `json:"totalAssets,omitempty"`
+	GrossAssets      string         `json:"grossAssets,omitempty"`
+	TotalLiabilities string         `json:"totalLiabilities,omitempty"`
+	NetAssets        string         `json:"netAssets"`
+	TotalSupply      string         `json:"totalSupply,omitempty"`
+	IdleBalance      string         `json:"idleBalance,omitempty"`
+	Sources          []Source       `json:"sources"`
 }
 
 // Source contains one yield source's balance normalized into the vault asset.
 type Source struct {
-	Source       common.Address `json:"source"`
-	Oracle       common.Address `json:"oracle"`
-	Kind         uint8          `json:"kind"`
-	PositionType string         `json:"positionType"`
-	Error        string         `json:"error,omitempty"`
-	RawShares    string         `json:"rawShares,omitempty"`
-	AssetTVL     string         `json:"assetTvl,omitempty"`
-	AssetSymbol  string         `json:"assetSymbol,omitempty"`
-	Active       bool           `json:"active,omitempty"`
+	Source             common.Address `json:"source"`
+	Oracle             common.Address `json:"oracle"`
+	Kind               uint8          `json:"kind"`
+	PositionType       string         `json:"positionType"`
+	MarketKey          common.Address `json:"marketKey,omitempty"`
+	MarketID           common.Hash    `json:"marketId,omitempty"`
+	ProtocolAddress    common.Address `json:"protocolAddress,omitempty"`
+	PositionSide       string         `json:"positionSide,omitempty"`
+	UnderlyingAsset    common.Address `json:"underlyingAsset,omitempty"`
+	UnderlyingDecimals *uint8         `json:"underlyingDecimals,omitempty"`
+	UnderlyingTVL      string         `json:"underlyingTvl,omitempty"`
+	Error              string         `json:"error,omitempty"`
+	RawShares          string         `json:"rawShares,omitempty"`
+	AssetTVL           string         `json:"assetTvl,omitempty"`
+	AssetSymbol        string         `json:"assetSymbol,omitempty"`
+	Active             bool           `json:"active,omitempty"`
 }
 
 // HTTPError describes a non-success response from snapshotd.
