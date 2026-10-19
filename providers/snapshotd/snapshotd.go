@@ -253,7 +253,7 @@ func validateAndNormalizeAllocation(query Query, allocation *Allocation) error {
 			return err
 		}
 	}
-	return validateMarketSources(allocation)
+	return nil
 }
 
 func validateDecimal(field, value string) error {
