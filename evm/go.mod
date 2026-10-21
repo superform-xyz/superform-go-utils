@@ -1,6 +1,6 @@
 module github.com/superform-xyz/superform-go-utils/evm
 
-go 1.25.7
+go 1.26.10
 
 require (
 	github.com/DATA-DOG/go-sqlmock v1.5.2
