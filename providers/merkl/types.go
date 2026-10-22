@@ -130,6 +130,7 @@ type Campaign struct {
 	ID                  string  `json:"id"`
 	CampaignID          string  `json:"campaignId"`
 	OnChainCampaignID   string  `json:"onChainCampaignId"`
+	OpportunityID       string  `json:"opportunityId"`
 	Type                string  `json:"type"`
 	ComputeChainID      int     `json:"computeChainId"`
 	DistributionChainID int     `json:"distributionChainId"`

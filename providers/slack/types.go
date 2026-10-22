@@ -13,8 +13,17 @@ type Message struct {
 }
 
 type Block struct {
-	Type string      `json:"type"`
-	Text *TextObject `json:"text,omitempty"`
+	Type     string       `json:"type"`
+	Text     *TextObject  `json:"text,omitempty"`
+	Fields   []TextObject `json:"fields,omitempty"`
+	Elements []Button     `json:"elements,omitempty"`
+}
+
+type Button struct {
+	Type  string     `json:"type"`
+	Text  TextObject `json:"text"`
+	URL   string     `json:"url"`
+	Style string     `json:"style,omitempty"`
 }
 
 type TextObject struct {
