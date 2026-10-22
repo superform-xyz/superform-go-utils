@@ -14,6 +14,9 @@ request per call without automatic retries. Messages support text, blocks, and
 attachments. Include a text summary with structured messages for notification
 previews and screen readers.
 
+Blocks support headers, dividers, two-column section `Fields`, and action
+`Elements` containing link buttons; existing text-only blocks remain unchanged.
+
 `WithHTTPClient` accepts a caller-owned HTTP client for custom transports,
 network restrictions, and testing; its timeout and redirect policy apply as
 configured by the caller. Transport errors omit the webhook URL, and HTTP
