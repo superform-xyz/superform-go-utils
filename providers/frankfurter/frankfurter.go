@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/superform-xyz/superform-go-utils/pkg/http_client"
+	"github.com/superform-xyz/superform-go-utils/utils/filter"
 	"golang.org/x/time/rate"
 )
 
@@ -36,6 +37,7 @@ const (
 type client struct {
 	baseURL          string
 	userAgent        string
+	quotes           []string
 	httpClient       *http_client.Client
 	limiter          *rate.Limiter
 	transportWrapper func(http.RoundTripper) http.RoundTripper
@@ -132,6 +134,20 @@ func WithUserAgent(userAgent string) Option {
 	}
 }
 
+// WithQuotes restricts fetched currencies to a normalized, deduplicated batch.
+// GetRate rejects quotes outside this list; an empty list keeps all-currency fetching.
+func WithQuotes(quotes ...string) Option {
+	return func(c *client) {
+		normalized := make([]string, 0, len(quotes))
+		for _, quote := range quotes {
+			if quote = normalizeCurrency(quote); quote != "" {
+				normalized = append(normalized, quote)
+			}
+		}
+		c.quotes = filter.Unique(normalized)
+	}
+}
+
 // WithMaxStaleness sets how long a cached earlier rate may be returned when a
 // current rate cannot be loaded. A zero duration disables stale fallback.
 func WithMaxStaleness(maxStaleness time.Duration) Option {
@@ -223,6 +239,9 @@ func (c *client) GetRate(ctx context.Context, req RateRequest) (*Rate, error) {
 	if base == quote {
 		return &Rate{Date: effectiveDate, Base: base, Quote: quote, Value: 1}, nil
 	}
+	if len(c.quotes) > 0 && !filter.Contains(c.quotes, quote) {
+		return nil, fmt.Errorf("%w: quote %s is outside the configured batch", ErrRateUnavailable, quote)
+	}
 	if cached, ok := c.cachedRate(base, effectiveDate, quote); ok {
 		return &cached, nil
 	}
@@ -298,11 +317,16 @@ func (c *client) fetchMonth(ctx context.Context, base string, effectiveDate time
 	query.Set("base", base)
 	query.Set("from", monthStart.Format(time.DateOnly))
 	query.Set("to", monthEnd.Format(time.DateOnly))
+	if len(c.quotes) > 0 {
+		query.Set("quotes", strings.Join(c.quotes, ","))
+	}
 	body, err := c.getBody(ctx, c.baseURL+ratesPath+"?"+query.Encode())
 	if err != nil {
 		return err
 	}
-	rates, err := decodeRates(body, base, monthStart, monthEnd)
+	// Ranges may carry observations from before their start. Preserve their dates;
+	// cachedStaleRate enforces the age limit for the currency actually requested.
+	rates, err := decodeRates(body, base, monthStart.Add(-c.maxStaleness), monthEnd)
 	if err != nil {
 		return err
 	}
@@ -348,7 +372,7 @@ func (c *client) getBody(ctx context.Context, endpoint string) ([]byte, error) {
 }
 
 func decodeRates(body []byte, expectedBase string, from time.Time, to time.Time) (map[string]map[string]Rate, error) {
-	var rows []rateRow
+	var rows []json.RawMessage
 	if err := json.Unmarshal(body, &rows); err != nil {
 		return nil, fmt.Errorf("decode response: %w", err)
 	}
@@ -357,34 +381,40 @@ func decodeRates(body []byte, expectedBase string, from time.Time, to time.Time)
 	}
 
 	ratesByDate := make(map[string]map[string]Rate)
-	for _, row := range rows {
-		rowDate, err := time.Parse(time.DateOnly, strings.TrimSpace(row.Date))
-		if err != nil {
-			return nil, fmt.Errorf("parse rate date %q: %w", row.Date, err)
+	seen := make(map[string]bool)
+	for _, raw := range rows {
+		var row rateRow
+		if err := json.Unmarshal(raw, &row); err != nil {
+			continue
 		}
-		if rowDate.Before(from) || rowDate.After(to) {
-			return nil, fmt.Errorf("response date %s is outside requested range %s to %s", row.Date, from.Format(time.DateOnly), to.Format(time.DateOnly))
+		rowDate, err := time.Parse(time.DateOnly, strings.TrimSpace(row.Date))
+		if err != nil || rowDate.Before(from) || rowDate.After(to) {
+			continue
 		}
 		base := normalizeCurrency(row.Base)
 		if base != expectedBase {
-			return nil, fmt.Errorf("response has unexpected base currency %q", row.Base)
+			continue
 		}
 		quote := normalizeCurrency(row.Quote)
 		if quote == "" {
-			return nil, errors.New("response has an empty quote currency")
+			continue
 		}
+		dateKey := cacheDateKey(base, rowDate)
+		pairKey := dateKey + "|" + quote
+		if seen[pairKey] {
+			// A conflicting pair must not invalidate unrelated currencies.
+			delete(ratesByDate[dateKey], quote)
+			continue
+		}
+		seen[pairKey] = true
 		if !positiveFinite(row.Rate) {
-			return nil, fmt.Errorf("response has invalid %s rate for %s", quote, row.Date)
+			continue
 		}
 
-		dateKey := cacheDateKey(base, rowDate)
 		dailyRates := ratesByDate[dateKey]
 		if dailyRates == nil {
 			dailyRates = make(map[string]Rate)
 			ratesByDate[dateKey] = dailyRates
-		}
-		if _, exists := dailyRates[quote]; exists {
-			return nil, fmt.Errorf("response has duplicate %s rate for %s", quote, row.Date)
 		}
 		dailyRates[quote] = Rate{Date: rowDate, Base: base, Quote: quote, Value: row.Rate}
 	}
