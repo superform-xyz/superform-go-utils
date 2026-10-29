@@ -9,9 +9,11 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/http/cookiejar"
 	"net/url"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/superform-xyz/superform-go-utils/pkg/http_client"
@@ -22,6 +24,7 @@ const (
 	defaultBaseURL    = "https://query1.finance.yahoo.com"
 	chartPath         = "/v8/finance/chart/%s"
 	defaultUserAgent  = "superform-go-utils/yahoo"
+	defaultCrumbAgent = "Mozilla/5.0 (compatible; superform-go-utils/yahoo)"
 	defaultTimeout    = 30 * time.Second
 	defaultMaxRetries = uint(0)
 	defaultRetryDelay = time.Second
@@ -35,11 +38,13 @@ type Client interface {
 	GetChart(ctx context.Context, req ChartRequest) (*ChartResponse, error)
 	GetStockDetail(ctx context.Context, symbol string) (*StockDetail, error)
 	GetPriceHistory(ctx context.Context, req PriceHistoryRequest) ([]PriceBar, error)
+	GetShareStatistics(ctx context.Context, symbol string) (*ShareStatistics, error)
 	Close() error
 }
 
 type client struct {
 	baseURL          string
+	cookieURL        string
 	userAgent        string
 	httpClient       *http_client.Client
 	limiter          *rate.Limiter
@@ -47,6 +52,10 @@ type client struct {
 	timeout          *time.Duration
 	maxRetries       *uint
 	retryDelay       *time.Duration
+	jar              http.CookieJar
+	sessionMu        sync.Mutex
+	session          shareSession
+	sessionPending   *shareSessionAttempt
 }
 
 var _ Client = (*client)(nil)
@@ -115,6 +124,7 @@ func WithUserAgent(userAgent string) Option {
 func New(opts ...Option) (Client, error) {
 	c := &client{
 		baseURL:   defaultBaseURL,
+		cookieURL: "https://fc.yahoo.com",
 		userAgent: defaultUserAgent,
 	}
 	for _, opt := range opts {
@@ -143,6 +153,31 @@ func New(opts ...Option) (Client, error) {
 		}
 		c.httpClient = builder.BuildClient()
 	}
+	jar := c.httpClient.Jar
+	if jar == nil {
+		jar, _ = cookiejar.New(nil)
+	}
+	c.jar = jar
+	// Capture cookies below the retry transport: Yahoo's cookie endpoint returns
+	// Set-Cookie with HTTP 404, whose response the shared transport consumes.
+	httpClient := *c.httpClient.Client
+	httpClient.Jar = nil
+	base := httpClient.Transport
+	if base == nil {
+		base = http.DefaultTransport
+	}
+	if retry, ok := base.(*http_client.Transport); ok {
+		copy := *retry
+		retryBase := retry.BaseTransport
+		if retryBase == nil {
+			retryBase = http.DefaultTransport
+		}
+		copy.BaseTransport = &sessionTransport{base: retryBase, jar: jar, limiter: c.limiter}
+		httpClient.Transport = &copy
+	} else {
+		httpClient.Transport = &sessionTransport{base: base, jar: jar, limiter: c.limiter}
+	}
+	c.httpClient = &http_client.Client{Client: &httpClient}
 	return c, nil
 }
 
@@ -217,6 +252,11 @@ func (c *client) GetPriceHistory(ctx context.Context, req PriceHistoryRequest) (
 func (c *client) Close() error {
 	if c.httpClient != nil {
 		c.httpClient.CloseIdleConnections()
+		if retry, ok := c.httpClient.Transport.(*http_client.Transport); ok {
+			if closer, ok := retry.BaseTransport.(interface{ CloseIdleConnections() }); ok {
+				closer.CloseIdleConnections()
+			}
+		}
 	}
 	return nil
 }
@@ -229,8 +269,8 @@ func (c *client) getBody(ctx context.Context, endpoint string) ([]byte, error) {
 	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
-		body, _ := io.ReadAll(io.LimitReader(resp.Body, maxErrorResponse))
-		return nil, &HTTPError{StatusCode: resp.StatusCode, Body: strings.TrimSpace(string(body))}
+		_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, maxErrorResponse))
+		return nil, &HTTPError{StatusCode: resp.StatusCode}
 	}
 
 	body, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseBody))
@@ -241,25 +281,31 @@ func (c *client) getBody(ctx context.Context, endpoint string) ([]byte, error) {
 }
 
 func (c *client) doGET(ctx context.Context, endpoint string) (*http.Response, error) {
+	return c.doGETWithClient(ctx, endpoint, c.httpClient.Client)
+}
+
+func (c *client) doGETWithClient(ctx context.Context, endpoint string, httpClient *http.Client) (*http.Response, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	if c.limiter != nil {
-		if err := c.limiter.Wait(ctx); err != nil {
-			return nil, fmt.Errorf("rate limit wait: %w", err)
-		}
-	}
-
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
 	if err != nil {
-		return nil, fmt.Errorf("build request: %w", err)
+		return nil, errors.New("build Yahoo request failed")
 	}
 	req.Header.Set("Accept", "application/json")
 	req.Header.Set("User-Agent", c.userAgent)
+	// The free crumb endpoint rejects the library-only agent with HTTP 429.
+	// Identify this client using browser-compatible syntax for that endpoint.
+	if req.URL.Path == "/v1/test/getcrumb" {
+		req.Header.Set("Accept", "text/plain")
+		if c.userAgent == defaultUserAgent {
+			req.Header.Set("User-Agent", defaultCrumbAgent)
+		}
+	}
 
-	resp, err := c.httpClient.Do(req)
+	resp, err := httpClient.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("request failed: %w", err)
+		return nil, safeRequestError(err)
 	}
 	return resp, nil
 }

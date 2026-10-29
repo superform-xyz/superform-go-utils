@@ -185,6 +185,65 @@ func (_c *MockClient_GetPriceHistory_Call) RunAndReturn(run func(context.Context
 	return _c
 }
 
+// GetShareStatistics provides a mock function with given fields: ctx, symbol
+func (_m *MockClient) GetShareStatistics(ctx context.Context, symbol string) (*yahoo.ShareStatistics, error) {
+	ret := _m.Called(ctx, symbol)
+
+	if len(ret) == 0 {
+		panic("no return value specified for GetShareStatistics")
+	}
+
+	var r0 *yahoo.ShareStatistics
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, string) (*yahoo.ShareStatistics, error)); ok {
+		return rf(ctx, symbol)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, string) *yahoo.ShareStatistics); ok {
+		r0 = rf(ctx, symbol)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*yahoo.ShareStatistics)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, string) error); ok {
+		r1 = rf(ctx, symbol)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// MockClient_GetShareStatistics_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetShareStatistics'
+type MockClient_GetShareStatistics_Call struct {
+	*mock.Call
+}
+
+// GetShareStatistics is a helper method to define mock.On call
+//   - ctx context.Context
+//   - symbol string
+func (_e *MockClient_Expecter) GetShareStatistics(ctx interface{}, symbol interface{}) *MockClient_GetShareStatistics_Call {
+	return &MockClient_GetShareStatistics_Call{Call: _e.mock.On("GetShareStatistics", ctx, symbol)}
+}
+
+func (_c *MockClient_GetShareStatistics_Call) Run(run func(ctx context.Context, symbol string)) *MockClient_GetShareStatistics_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string))
+	})
+	return _c
+}
+
+func (_c *MockClient_GetShareStatistics_Call) Return(_a0 *yahoo.ShareStatistics, _a1 error) *MockClient_GetShareStatistics_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *MockClient_GetShareStatistics_Call) RunAndReturn(run func(context.Context, string) (*yahoo.ShareStatistics, error)) *MockClient_GetShareStatistics_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // GetStockDetail provides a mock function with given fields: ctx, symbol
 func (_m *MockClient) GetStockDetail(ctx context.Context, symbol string) (*yahoo.StockDetail, error) {
 	ret := _m.Called(ctx, symbol)

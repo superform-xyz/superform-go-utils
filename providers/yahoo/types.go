@@ -47,6 +47,18 @@ type PriceBar struct {
 	Volume    int64
 }
 
+// ShareStatistics is Yahoo's current share-statistics snapshot. Yahoo does not
+// provide a float-specific effective date; quarter and short-interest dates do
+// not establish when FloatShares was measured.
+type ShareStatistics struct {
+	Symbol            string
+	Currency          string
+	QuoteType         string
+	Exchange          string
+	FloatShares       *float64
+	SharesOutstanding *float64
+}
+
 type YahooError struct {
 	Code        string `json:"code"`
 	Description string `json:"description"`
