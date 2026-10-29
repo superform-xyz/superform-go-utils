@@ -75,6 +75,18 @@ type ChartResult struct {
 	Meta       ChartMeta       `json:"meta"`
 	Timestamp  []int64         `json:"timestamp"`
 	Indicators ChartIndicators `json:"indicators"`
+	Events     ChartEvents     `json:"events"`
+}
+
+type ChartEvents struct {
+	Splits map[string]SplitEvent `json:"splits"`
+}
+
+type SplitEvent struct {
+	Date        int64   `json:"date"`
+	Numerator   float64 `json:"numerator"`
+	Denominator float64 `json:"denominator"`
+	SplitRatio  string  `json:"splitRatio"`
 }
 
 type ChartMeta struct {
