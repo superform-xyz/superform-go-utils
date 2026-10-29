@@ -49,7 +49,7 @@ func (e *HTTPError) Error() string {
 	return fmt.Sprintf("hyperliquid: unexpected status %d: %s", e.StatusCode, e.Body)
 }
 
-// ErrorKind identifies the phase of a failed read for caller instrumentation.
+// ErrorKind identifies the phase of a failed request for caller instrumentation.
 type ErrorKind string
 
 const (
@@ -67,7 +67,7 @@ type RequestError struct {
 func (e *RequestError) Error() string { return e.Err.Error() }
 func (e *RequestError) Unwrap() error { return e.Err }
 
-// Response describes the actual HTTP attempt, including unsuccessful reads.
+// Response describes the actual HTTP attempt, including unsuccessful requests.
 // Dispatched means Do was invoked; it does not establish server receipt.
 type Response struct {
 	Dispatched bool
@@ -190,9 +190,59 @@ func (c *InfoClient) ExtraAgents(ctx context.Context, user common.Address) ([]Ex
 	return out, nil
 }
 
+// RawExtraAgents preserves each address exactly as returned by the venue.
+func (c *InfoClient) RawExtraAgents(ctx context.Context, user common.Address) ([]RawExtraAgent, error) {
+	var out []RawExtraAgent
+	if err := c.userRequest(ctx, "extraAgents", user, &out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// PerpMeta returns venue market metadata without filtering markets.
+func (c *InfoClient) PerpMeta(ctx context.Context) (*PerpMeta, error) {
+	out := new(PerpMeta)
+	if _, err := c.Post(ctx, map[string]string{"type": "meta"}, out); err != nil {
+		return nil, fmt.Errorf("hyperliquid: meta: %w", err)
+	}
+	return out, nil
+}
+
+func (c *InfoClient) UserRateLimit(ctx context.Context, user common.Address) (*UserRateLimit, error) {
+	out := new(UserRateLimit)
+	if err := c.userRequest(ctx, "userRateLimit", user, out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// OrderStatus reads one order by numeric order ID or client order ID string.
+// Absence, expiry and approval policy belong to the consuming application.
+func (c *InfoClient) OrderStatus(ctx context.Context, user common.Address, oid any) (*OrderStatusResponse, error) {
+	out := new(OrderStatusResponse)
+	_, err := c.Post(ctx, map[string]any{"type": "orderStatus", "user": strings.ToLower(user.Hex()), "oid": oid}, out)
+	if err != nil {
+		return nil, fmt.Errorf("hyperliquid: orderStatus: %w", err)
+	}
+	return out, nil
+}
+
 func (c *InfoClient) NonFundingLedgerUpdates(ctx context.Context, user common.Address, startTime int64) ([]LedgerUpdate, error) {
+	return c.NonFundingLedgerUpdatesPage(ctx, user, startTime, nil)
+}
+
+// NonFundingLedgerUpdatesPage reads exactly one raw provider page. endTime is
+// optional; hashless entries, order and repeated rows remain untouched.
+// Pagination, deduplication and execution-evidence validation belong to callers.
+func (c *InfoClient) NonFundingLedgerUpdatesPage(ctx context.Context, user common.Address, startTime int64, endTime *int64) ([]LedgerUpdate, error) {
 	var out []LedgerUpdate
-	_, err := c.Post(ctx, map[string]any{"type": "userNonFundingLedgerUpdates", "user": strings.ToLower(user.Hex()), "startTime": startTime}, &out)
+	request := struct {
+		Type      string `json:"type"`
+		User      string `json:"user"`
+		StartTime int64  `json:"startTime"`
+		EndTime   *int64 `json:"endTime,omitempty"`
+	}{Type: "userNonFundingLedgerUpdates", User: strings.ToLower(user.Hex()), StartTime: startTime, EndTime: endTime}
+	_, err := c.Post(ctx, request, &out)
 	if err != nil {
 		return nil, fmt.Errorf("hyperliquid: userNonFundingLedgerUpdates: %w", err)
 	}
@@ -204,6 +254,12 @@ func (c *InfoClient) SpotMetaAndAssetCtxs(ctx context.Context) (*SpotMeta, []Spo
 	if _, err := c.Post(ctx, map[string]string{"type": "spotMetaAndAssetCtxs"}, &raw); err != nil {
 		return nil, nil, fmt.Errorf("hyperliquid: spotMetaAndAssetCtxs: %w", err)
 	}
+	return DecodeSpotMetaAndAssetCtxs(raw)
+}
+
+// DecodeSpotMetaAndAssetCtxs decodes the two-part provider response without
+// applying pricing, cache or supported-token policy.
+func DecodeSpotMetaAndAssetCtxs(raw []json.RawMessage) (*SpotMeta, []SpotAssetCtx, error) {
 	if len(raw) != 2 {
 		return nil, nil, fmt.Errorf("hyperliquid: spotMetaAndAssetCtxs returned %d elements, want 2", len(raw))
 	}
