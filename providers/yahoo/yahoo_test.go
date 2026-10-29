@@ -46,6 +46,56 @@ func TestGetChartBuildsRangeQuery(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, resp.Chart.Result, 1)
 	assert.Equal(t, "AAPL", resp.Chart.Result[0].Meta.Symbol)
+	assert.Nil(t, resp.Chart.Result[0].Events.Splits)
+}
+
+func TestGetChartDecodesSplitEvents(t *testing.T) {
+	t.Parallel()
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, "splits", r.URL.Query().Get("events"))
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{
+			"chart": {
+				"result": [{
+					"meta": {"symbol": "EXAMPLE"},
+					"timestamp": [1717947000],
+					"indicators": {"quote": [{"close": [135.58]}]},
+					"events": {"splits": {
+						"1718006400": {
+							"date": 1718033400,
+							"numerator": 2.5,
+							"denominator": 1,
+							"splitRatio": "5:2"
+						}
+					}}
+				}],
+				"error": null
+			}
+		}`))
+	}))
+	defer srv.Close()
+
+	c := mustNew(t, WithBaseURL(srv.URL), WithHTTPClient(srv.Client()))
+	resp, err := c.GetChart(context.Background(), ChartRequest{
+		Symbol: "EXAMPLE",
+		Events: "splits",
+	})
+	require.NoError(t, err)
+	require.Len(t, resp.Chart.Result, 1)
+	result := resp.Chart.Result[0]
+	require.Len(t, result.Events.Splits, 1)
+	assert.Equal(t, SplitEvent{
+		Date:        1718033400,
+		Numerator:   2.5,
+		Denominator: 1,
+		SplitRatio:  "5:2",
+	}, result.Events.Splits["1718006400"])
+	assert.Equal(t, []int64{1717947000}, result.Timestamp)
+	require.Len(t, result.Indicators.Quote, 1)
+	require.Len(t, result.Indicators.Quote[0].Close, 1)
+	require.NotNil(t, result.Indicators.Quote[0].Close[0])
+	assert.Equal(t, 135.58, *result.Indicators.Quote[0].Close[0])
 }
 
 func TestGetChartBuildsPeriodQuery(t *testing.T) {
