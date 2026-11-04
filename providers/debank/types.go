@@ -31,6 +31,7 @@ var chainToNameMap = map[uint64]string{
 	constants.HyperEvmChainID:  "hyper",
 	constants.RobinhoodChainID: "hood",
 	constants.ArcChainID:       "arc",
+	constants.KatanaChainID:    "katana",
 }
 
 // Token represents a token from Debank API

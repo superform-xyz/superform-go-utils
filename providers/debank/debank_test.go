@@ -662,6 +662,12 @@ func TestChainToName(t *testing.T) {
 		assert.Equal(t, "eth", name)
 	})
 
+	t.Run("katana", func(t *testing.T) {
+		name, err := ChainToName(constants.KatanaChainID)
+		require.NoError(t, err)
+		assert.Equal(t, "katana", name)
+	})
+
 	t.Run("unknown chain", func(t *testing.T) {
 		_, err := ChainToName(999999999)
 		assert.Error(t, err)
@@ -672,6 +678,10 @@ func TestChainToName(t *testing.T) {
 func TestChainNameToID(t *testing.T) {
 	t.Run("known name", func(t *testing.T) {
 		assert.Equal(t, constants.MainnetChainID, ChainNameToID("eth"))
+	})
+
+	t.Run("katana", func(t *testing.T) {
+		assert.Equal(t, constants.KatanaChainID, ChainNameToID("katana"))
 	})
 
 	t.Run("unknown name", func(t *testing.T) {
