@@ -462,7 +462,7 @@ func TestCoinUnmarshalPrice(t *testing.T) {
 }
 
 func TestChainSlugs(t *testing.T) {
-	for chainID, slug := range map[uint64]string{100: "xdai", 146: "sonic", 480: "worldchain", 5000: "mantle", 59144: "linea", 80094: "berachain", 988: "stable"} {
+	for chainID, slug := range map[uint64]string{100: "xdai", 146: "sonic", 480: "worldchain", 5000: "mantle", 59144: "linea", 80094: "berachain", 988: "stable", constants.KatanaChainID: "katana"} {
 		assert.Equal(t, slug, chainToNameMap[chainID])
 	}
 }

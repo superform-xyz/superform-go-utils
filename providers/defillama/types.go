@@ -31,6 +31,7 @@ var chainToNameMap = map[uint64]string{
 	constants.LineaChainID:     "linea",
 	constants.BeraChainID:      "berachain",
 	constants.StableChainID:    "stable",
+	constants.KatanaChainID:    "katana",
 }
 
 // Coin represents a coin.
