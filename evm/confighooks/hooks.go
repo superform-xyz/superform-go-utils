@@ -5,9 +5,11 @@ import (
 	"context"
 	"crypto/ecdsa"
 	"reflect"
+	"strings"
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/mitchellh/mapstructure"
@@ -21,14 +23,13 @@ var (
 
 // ClientConfig controls how RPC clients are created during decoding.
 // A nil Context uses context.Background and a nil Dial uses ethclient.DialContext.
-// Verify is optional; callers choose which RPC capabilities to check.
 type ClientConfig struct {
 	Context context.Context
 	Dial    func(context.Context, string) (*ethclient.Client, error)
-	Verify  func(context.Context, *ethclient.Client, string) error
 }
 
-// NewEthClientHook decodes RPC URLs without making application-specific probes.
+// NewEthClientHook decodes RPC URLs and verifies their RPC capabilities.
+// WSS endpoints must support new-head subscriptions; other endpoints must return a chain ID.
 // The decoded client belongs to the caller; failed verification closes it.
 func NewEthClientHook(config ClientConfig) mapstructure.DecodeHookFuncType {
 	ctx := config.Context
@@ -54,11 +55,18 @@ func NewEthClientHook(config ClientConfig) mapstructure.DecodeHookFuncType {
 		if err != nil {
 			return nil, errors.Wrap(err, "failed to dial connection")
 		}
-		if config.Verify != nil {
-			if err := config.Verify(ctx, client, endpoint); err != nil {
+		if strings.HasPrefix(endpoint, "wss://") {
+			ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+			defer cancel()
+			sub, err := client.SubscribeNewHead(ctx, make(chan *types.Header))
+			if err != nil {
 				client.Close()
-				return nil, err
+				return nil, errors.Wrap(err, "failed to create subscription")
 			}
+			sub.Unsubscribe()
+		} else if _, err := client.ChainID(ctx); err != nil {
+			client.Close()
+			return nil, errors.Wrap(err, "failed to get chain ID")
 		}
 		return client, nil
 	}
@@ -207,7 +215,7 @@ func DecodeTimeDurationHook(from reflect.Type, to reflect.Type, data interface{}
 	return data, nil
 }
 
-// CfgHooks combines the reusable hooks. RPC verification is selected by config.
+// CfgHooks combines the reusable hooks, including RPC capability verification.
 func CfgHooks(config ClientConfig) mapstructure.DecodeHookFunc {
 	return mapstructure.ComposeDecodeHookFunc(
 		AddressHook,
