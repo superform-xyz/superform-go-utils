@@ -2,7 +2,6 @@
 package merkl
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -336,8 +335,8 @@ func (c *client) getJSON(ctx context.Context, path string, values url.Values, ou
 	if err != nil {
 		return err
 	}
-	if err := json.NewDecoder(bytes.NewReader(body)).Decode(out); err != nil {
-		return fmt.Errorf("decode response: %w", err)
+	if err := json.Unmarshal(body, out); err != nil {
+		return &ResponseError{Err: fmt.Errorf("decode response: %w", err)}
 	}
 	return nil
 }
@@ -351,14 +350,61 @@ func (c *client) getBody(ctx context.Context, path string, values url.Values) ([
 
 	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, maxErrorResponseBytes))
-		return nil, fmt.Errorf("status %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+		return nil, &StatusError{
+			Code:       resp.StatusCode,
+			RetryAfter: parseRetryAfter(resp.Header.Get("Retry-After"), time.Now()),
+			Body:       strings.TrimSpace(string(body)),
+		}
 	}
 
-	body, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseBody))
+	body, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseBody+1))
 	if err != nil {
 		return nil, fmt.Errorf("read response: %w", err)
 	}
+	if len(body) > maxResponseBody {
+		return nil, &ResponseError{Err: fmt.Errorf("response exceeds %d bytes", maxResponseBody)}
+	}
 	return body, nil
+}
+
+// ResponseError identifies a response that cannot be consumed, such as invalid
+// JSON or an oversized body. Transport and body-read failures keep their own
+// errors so callers can retry unavailable requests separately from invalid data.
+type ResponseError struct {
+	Err error
+}
+
+func (e *ResponseError) Error() string { return e.Err.Error() }
+func (e *ResponseError) Unwrap() error { return e.Err }
+
+// StatusError is a non-2xx Merkl response. Its message keeps the historical
+// "status <code>: <body>" form so existing callers are unaffected.
+type StatusError struct {
+	Code int
+	// RetryAfter is the parsed Retry-After delay, or zero when absent or invalid.
+	RetryAfter time.Duration
+	Body       string
+}
+
+func (e *StatusError) Error() string {
+	return fmt.Sprintf("status %d: %s", e.Code, e.Body)
+}
+
+func parseRetryAfter(value string, now time.Time) time.Duration {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return 0
+	}
+	if seconds, err := strconv.ParseInt(value, 10, 32); err == nil {
+		if seconds <= 0 {
+			return 0
+		}
+		return time.Duration(seconds) * time.Second
+	}
+	if until, err := http.ParseTime(value); err == nil && until.After(now) {
+		return until.Sub(now)
+	}
+	return 0
 }
 
 func (c *client) doGET(ctx context.Context, path string, values url.Values) (*http.Response, error) {
