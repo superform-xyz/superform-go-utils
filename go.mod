@@ -3,6 +3,7 @@ module github.com/superform-xyz/superform-go-utils
 go 1.26.10
 
 require (
+	github.com/aws/aws-sdk-go v1.55.5
 	github.com/ethereum/go-ethereum v1.13.14
 	github.com/pkg/errors v0.9.1
 	github.com/stretchr/testify v1.8.4
@@ -20,6 +21,7 @@ require (
 	github.com/decred/dcrd/dcrec/secp256k1/v4 v4.0.1 // indirect
 	github.com/ethereum/c-kzg-4844 v0.4.0 // indirect
 	github.com/holiman/uint256 v1.2.4 // indirect
+	github.com/jmespath/go-jmespath v0.4.0 // indirect
 	github.com/mmcloughlin/addchain v0.4.0 // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect
 	github.com/stretchr/objx v0.5.0 // indirect
