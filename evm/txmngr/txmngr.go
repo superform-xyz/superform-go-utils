@@ -133,8 +133,7 @@ func (l *nonceLane) isTip(nonce uint64) bool {
 	return l.known && l.next == nonce+1
 }
 
-// EthClient is the interface for the Ethereum client.
-// BalanceAt is required to price a same-nonce cancellation.
+// BalanceAt prices a same-nonce cancellation.
 type EthClient interface {
 	bind.ContractTransactor
 	bind.ContractBackend
@@ -875,7 +874,7 @@ func (m *txManager) broadcastAndSchedule(
 	if err := m.clients[tx.ChainID].SendTransaction(ctx, attempts[len(attempts)-1].Tx); err != nil {
 		return m.handleBroadcastFailure(ctx, tx, attempts, err, policy)
 	}
-	tx.Msg = preservedRecoveryMessage(tx.Msg)
+	tx.Msg = admittedRecoveryMessage(tx.Msg)
 	tx.BroadcastPending = false
 	tx.RejectedAttemptHash = nil
 	return m.scheduleNextCheck(tx, attempts)
@@ -910,7 +909,11 @@ func (m *txManager) handleBroadcastFailure(
 	tx.RejectedAttemptHash = nil
 	switch disposition {
 	case broadcastAlreadyKnown:
-		tx.Msg = preservedRecoveryMessage(tx.Msg)
+		if policy.notDurableLatest {
+			tx.Msg = preservedRecoveryMessage(tx.Msg)
+		} else {
+			tx.Msg = admittedRecoveryMessage(tx.Msg)
+		}
 		tx.BroadcastPending = false
 	case broadcastNonceConsumed:
 		tx.Msg = reason
@@ -940,7 +943,11 @@ func (m *txManager) handleBroadcastFailure(
 			tx.RejectedAttemptHash = &rejectedHash
 		}
 	case broadcastTransactionRejectedRetryable:
-		if kept := preservedRecoveryMessage(tx.Msg); kept != "" {
+		keep := preservedRecoveryMessage
+		if !policy.notDurableLatest {
+			keep = admittedRecoveryMessage
+		}
+		if kept := keep(tx.Msg); kept != "" {
 			tx.Msg = kept
 		} else {
 			tx.Msg = reason
@@ -1567,13 +1574,8 @@ func rpcErrorCode(err error) int {
 	return 0
 }
 
-// rpcErrorSummary preserves structured node validation details while ensuring
-// transport endpoints, credentials, response bodies, and bearer tokens never
-// reach durable transaction messages or logs.
-// redactedRPCError wraps err in an operation description with a message that is
-// safe to persist and log. Cancellation and deadline errors keep a fresh
-// sentinel so callers can use errors.Is. The original error is not formatted:
-// a url.Error unwraps to the deadline and its Error text contains the endpoint.
+// Canceled and DeadlineExceeded keep a fresh sentinel. The original error is not
+// formatted, so a url.Error cannot put its endpoint in the message.
 func redactedRPCError(operation string, err error) error {
 	switch {
 	case errors.Is(err, context.Canceled):
@@ -1624,7 +1626,8 @@ func redactRPCText(message string) string {
 // on fee grounds, so a fee replacement can still succeed at the same nonce.
 var feePolicyRejectionMessages = []string{
 	"replacement transaction underpriced", "replacement underpriced", "transaction underpriced",
-	"fee too low to replace", "max fee per gas less than block base fee",
+	"fee too low to replace", "transaction gas price below minimum",
+	"max fee per gas less than block base fee",
 	"max fee per gas below block base fee", "fee cap less than block base fee",
 	"fee cap below base fee",
 }

@@ -30,8 +30,7 @@ const (
 	CancellationReasonUnsupported  = "transaction type does not support same-nonce cancellation"
 )
 
-// CancellationPolicy opts one chain into same-nonce cancellation.
-// A zero PendingAge uses max(bump interval, exhausted poll), measured from the newest payload signature.
+// A zero PendingAge uses max(bump interval, exhausted poll) from the newest payload signature.
 type CancellationPolicy struct {
 	PendingAge time.Duration
 }
@@ -50,8 +49,7 @@ const (
 	LaneRecoveryConsumed         LaneRecoveryStatus = "consumed"
 )
 
-// LaneRecoveryEvent amounts are wei. Nil means that figure was not read.
-// Nonce is the assigned account nonce. A nil nonce is not a lane head.
+// Amounts are wei; nil was not read. A nil nonce is not a lane head.
 type LaneRecoveryEvent struct {
 	ChainID          uint64
 	Nonce            *uint64
@@ -62,8 +60,7 @@ type LaneRecoveryEvent struct {
 	FundingAvailable *big.Int
 }
 
-// WithCancellationPolicy enables cancellation for the listed chains.
-// Chains absent from the map keep rebroadcasting the latest payload hash.
+// Chains absent from the map keep rebroadcasting.
 func WithCancellationPolicy(chains map[uint64]CancellationPolicy) Option {
 	return func(m *txManager) {
 		if len(chains) == 0 {
@@ -80,8 +77,7 @@ func WithCancellationPolicy(chains map[uint64]CancellationPolicy) Option {
 	}
 }
 
-// WithLaneRecoveryObserver is called under the lane lock.
-// It must not block or re-enter the manager.
+// Called under the lane lock. Must not block or re-enter.
 func WithLaneRecoveryObserver(observe func(LaneRecoveryEvent)) Option {
 	return func(m *txManager) {
 		if observe != nil {
@@ -120,7 +116,6 @@ func (m *txManager) cancellationAge(chainID uint64) (time.Duration, bool) {
 	return age, true
 }
 
-// payloadNeedsCancellation reports an exhausted payload that still needs a cancel.
 func (m *txManager) payloadNeedsCancellation(
 	tx txmngr_provider.Transaction,
 	attempts []txmngr_provider.TransactionAttempt,
@@ -298,8 +293,7 @@ func (m *txManager) recoverExhaustedNonce(
 	})
 }
 
-// persistCancellation prices, gates, then signs. A nil transaction and nil error
-// means a gate refused the signature.
+// A nil transaction and nil error means a gate refused the signature.
 func (m *txManager) persistCancellation(
 	ctx context.Context,
 	tx *txmngr_provider.Transaction,
@@ -355,7 +349,7 @@ func (m *txManager) persistCancellation(
 			CreatedAt:     time.Now(),
 		}
 		insertErr := m.transactionsQ.InsertAttempt(attempt)
-		// Same-owner insert of this hash is idempotent, so it is not a new replacement.
+		// A same-hash insert is idempotent, so it is not a new replacement.
 		if insertErr == nil && previous != nil && signed.Hash() == previous.Hash() {
 			insertErr = txmngr_provider.ErrAttemptHashConflict
 		}
@@ -433,10 +427,7 @@ func (m *txManager) observeIncludedPayload(
 	m.emitRecovery(tx, payload, LaneRecoveryIncluded, nil, nil)
 }
 
-// releaseConsumedNonce publishes the terminal status for an assigned nonce that
-// left the active set without a receipt. Cancelled and included do not apply:
-// neither our cancellation nor the payload was mined. Without this event the
-// chain gauge keeps the last non-terminal head and drops every higher nonce.
+// An opted-in nonce abandoned without a receipt. Cancelled and included do not apply.
 func (m *txManager) releaseConsumedNonce(
 	tx txmngr_provider.Transaction,
 	attempts []txmngr_provider.TransactionAttempt,
@@ -462,7 +453,6 @@ type cancelQuote struct {
 	balance   *big.Int
 }
 
-// readInclusionQuote loads the header. Legacy quotes also load eth_gasPrice.
 func (m *txManager) readInclusionQuote(ctx context.Context, chainID uint64, txType byte) (cancelQuote, error) {
 	var quote cancelQuote
 	client, ok := m.clients[chainID]
@@ -493,7 +483,6 @@ func (m *txManager) readInclusionQuote(ctx context.Context, chainID uint64, txTy
 	return quote, nil
 }
 
-// readCancelFunds loads the tip and balance for a new signature.
 func (m *txManager) readCancelFunds(ctx context.Context, chainID uint64, txType byte, quote *cancelQuote) error {
 	if quote == nil {
 		return errors.New("cancellation quote is missing")
@@ -545,13 +534,12 @@ func priceCancellation(previous *types.Transaction, quote cancelQuote, floor *Ga
 				feeCap = bumpGasPrice(floor.GasFeeCap, replacementPremiumPercent)
 			}
 		}
-		// Both tip and fee cap must be strictly greater than the pooled transaction.
 		tip = strictlyAbove(previous.GasTipCap(), tip)
 		feeCap = strictlyAbove(previous.GasFeeCap(), feeCap)
 		if tip.Cmp(feeCap) > 0 {
 			feeCap = new(big.Int).Set(tip)
 		}
-		// Type 2, no authorization list: a copied list would still install the delegation.
+		// No authorization list. Copying one would install the delegation.
 		return cancelPricing{gas: params.TxGas, price: feeCap, tip: tip, dynamic: true}, nil
 	case types.LegacyTxType:
 		price := legacyCancelPrice(previous, quote)
@@ -614,7 +602,6 @@ func (m *txManager) signCancellation(
 	return signed, nil
 }
 
-// validateSignedCancellation rejects a signed body that is not the priced self-transfer.
 func validateSignedCancellation(tx txmngr_provider.Transaction, signed *types.Transaction) error {
 	if signed == nil {
 		return errors.New("signed cancellation is missing")
@@ -716,7 +703,6 @@ func cancelUnderpriced(tx *types.Transaction, quote cancelQuote) bool {
 	return feeExcluded(tx, quote)
 }
 
-// feeExcluded reports that the quote is above the transaction cap.
 func feeExcluded(tx *types.Transaction, quote cancelQuote) bool {
 	if dynamicFeeType(tx.Type()) {
 		capFee := tx.GasFeeCap()
@@ -732,7 +718,6 @@ func feeExcluded(tx *types.Transaction, quote cancelQuote) bool {
 	return quote.suggested != nil && quote.suggested.Cmp(price) > 0
 }
 
-// strictlyAbove returns candidate, or at least one wei above previous.
 func strictlyAbove(previous, candidate *big.Int) *big.Int {
 	if candidate == nil || candidate.Sign() < 0 {
 		candidate = big.NewInt(0)
@@ -824,7 +809,6 @@ func logicalTransactionIsCancel(tx txmngr_provider.Transaction) bool {
 	return tx.Value == nil || tx.Value.Sign() == 0
 }
 
-// plainSelfTransfer is a zero-value empty self-call with no authorization list.
 func plainSelfTransfer(tx txmngr_provider.Transaction, attempts []txmngr_provider.TransactionAttempt) bool {
 	return logicalTransactionIsCancel(tx) && !attemptsCarryAuthorization(attempts)
 }
@@ -882,7 +866,7 @@ func hasCancellationAttempt(attempts []txmngr_provider.TransactionAttempt, sende
 	return seenPayload && seenCancel
 }
 
-// payloadAge is the newest payload signature. A fee bump restarts the pending-age wait.
+// A fee bump restarts the pending-age wait.
 func payloadAge(attempts []txmngr_provider.TransactionAttempt, now time.Time) time.Duration {
 	if len(attempts) == 0 {
 		return 0
@@ -890,7 +874,6 @@ func payloadAge(attempts []txmngr_provider.TransactionAttempt, now time.Time) ti
 	return attemptAge(attempts[len(attempts)-1], now)
 }
 
-// laneBlockedAge is the oldest payload signature.
 func laneBlockedAge(attempts []txmngr_provider.TransactionAttempt, now time.Time) time.Duration {
 	if len(attempts) == 0 {
 		return 0
@@ -919,7 +902,6 @@ func upfrontWei(attempts []txmngr_provider.TransactionAttempt) *big.Int {
 	return highest
 }
 
-// fundedShortfall returns the wei still required, or nil when the balance covers it.
 func fundedShortfall(cancelCost, others, balance *big.Int) *big.Int {
 	required := cancelCost
 	if required == nil {
@@ -1019,6 +1001,14 @@ func preservedRecoveryMessage(message string) string {
 	default:
 		return ""
 	}
+}
+
+// Drops a generic underpriced reason once the durable latest hash is admitted.
+func admittedRecoveryMessage(message string) string {
+	if replacementUnderpricedMessage(message) {
+		return ""
+	}
+	return preservedRecoveryMessage(message)
 }
 
 func feeRejectionMessage(message string) bool {

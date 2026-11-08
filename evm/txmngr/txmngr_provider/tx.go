@@ -122,9 +122,7 @@ type TransactionsQ interface {
 	Limit(limit uint64) TransactionsQ
 }
 
-// TransactionAttempt is an immutable signed transaction candidate. Every
-// candidate for one logical transaction, including a same-nonce cancellation,
-// uses the same nonce.
+// One signed candidate. Candidates for a logical transaction share a nonce.
 type TransactionAttempt struct {
 	TransactionID string
 	Hash          common.Hash
