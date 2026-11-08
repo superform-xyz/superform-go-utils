@@ -589,6 +589,47 @@ func TestRestartRebroadcastsTheCancellationHash(t *testing.T) {
 	require.Equal(t, CancellationReasonPending, f.get("exhausted").Msg)
 }
 
+func TestForeignNonceAbandonReleasesTheLaneHead(t *testing.T) {
+	t.Parallel()
+	const nonce = uint64(6)
+	f, cl, _, _ := newExhaustedLane(t, exhaustedBuild{
+		nonce:     nonce,
+		suggested: 250,
+		balance:   big.NewInt(1 << 60),
+	})
+	var released *LaneRecoveryEvent
+	f.mngr.laneRecovery = func(event LaneRecoveryEvent) {
+		if event.Status != LaneRecoveryConsumed {
+			return
+		}
+		copied := event
+		released = &copied
+	}
+	cl.On("SendTransaction", mock2.Anything, mock2.Anything).
+		Return(testRPCError{code: -38010, message: "nonce too low"}).Once()
+
+	require.NoError(t, f.step("exhausted"))
+	stored := f.get("exhausted")
+	require.NotNil(t, stored.NonceConsumedAt)
+	require.NotEqual(t, txmngr_provider.ErroredTxStatus, stored.Status)
+	require.Nil(t, released)
+
+	stored.NonceConsumedAt = ptr(time.Now().Add(-2 * consumedNonceGrace))
+	stored.NextActionAt = time.Now().Add(-time.Second)
+	require.NoError(t, f.db.Insert(*stored))
+
+	require.NoError(t, f.step("exhausted"))
+	abandoned := f.get("exhausted")
+	require.Equal(t, txmngr_provider.ErroredTxStatus, abandoned.Status)
+	require.NotEqual(t, CancellationReasonMined, abandoned.Msg)
+	require.NotNil(t, abandoned.AssignedNonce)
+	require.Equal(t, nonce, *abandoned.AssignedNonce)
+	require.NotNil(t, released)
+	require.NotNil(t, released.Nonce)
+	require.Equal(t, nonce, *released.Nonce)
+	require.Equal(t, maxFeeReplacements, released.PayloadAttempts)
+}
+
 func TestForeignNonceDuringCancellationIsNotExecutionSuccess(t *testing.T) {
 	t.Parallel()
 	f, cl, _, _ := newExhaustedLane(t, exhaustedBuild{
