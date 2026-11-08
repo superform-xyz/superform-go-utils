@@ -123,7 +123,8 @@ type TransactionsQ interface {
 }
 
 // TransactionAttempt is an immutable signed transaction candidate. Every
-// candidate for one logical transaction uses the same nonce; only fees differ.
+// candidate for one logical transaction, including a same-nonce cancellation,
+// uses the same nonce.
 type TransactionAttempt struct {
 	TransactionID string
 	Hash          common.Hash

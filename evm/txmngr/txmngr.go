@@ -133,12 +133,14 @@ func (l *nonceLane) isTip(nonce uint64) bool {
 	return l.known && l.next == nonce+1
 }
 
-// EthClient is the interface for the Ethereum client
+// EthClient is the interface for the Ethereum client.
+// BalanceAt is required to price a same-nonce cancellation.
 type EthClient interface {
 	bind.ContractTransactor
 	bind.ContractBackend
 	bind.DeployBackend
 	ethereum.TransactionReader
+	BalanceAt(ctx context.Context, account common.Address, blockNumber *big.Int) (*big.Int, error)
 }
 
 // TxManager is the interface for the tx manager
@@ -177,6 +179,8 @@ type txManager struct {
 	blockTimeMap    map[uint64]time.Duration
 	getTransactOpts func(chainId uint64) (*bind.TransactOpts, error)
 	onStatusChange  TxStatusCallback
+	cancellation    map[uint64]CancellationPolicy
+	laneRecovery    func(LaneRecoveryEvent)
 	wg              sync.WaitGroup
 	stop            chan struct{}
 	startOnce       sync.Once
@@ -607,7 +611,7 @@ func (m *txManager) processTransactionStep(
 		// old-signer attempt reach a terminal state after key rotation and repairs
 		// stale parent sender/nonce fields from the immutable winning attempt.
 		if receipt, winner, receiptErr := m.findKnownReceipt(ctx, tx.ChainID, attempts); receipt != nil {
-			return m.finalizeTransaction(tx, winner, receipt)
+			return m.finalizeTransaction(tx, winner, receipt, logicalHasAuthorization(tx, attempts))
 		} else if receiptErr != nil {
 			tx.Msg = appendReconciliationError(tx.Msg, receiptErr)
 			receiptReadFailed = true
@@ -641,10 +645,12 @@ func (m *txManager) processTransactionStep(
 		)
 	}
 	resumeBroadcast := len(attempts) > 0 && tx.BroadcastPending
+	recoverPayload := m.payloadNeedsCancellation(tx, attempts)
 	if tx.NonceConsumedAt != nil && !resumeBroadcast {
 		return m.pollConsumedNonce(tx, attempts)
 	}
-	if len(attempts) > 0 && !tx.BroadcastPending && time.Now().Before(m.nextBumpAt(tx.ChainID, attempts[len(attempts)-1])) {
+	if len(attempts) > 0 && !tx.BroadcastPending && !recoverPayload &&
+		time.Now().Before(m.nextBumpAt(tx.ChainID, attempts[len(attempts)-1])) {
 		return m.scheduleNextCheck(tx, attempts)
 	}
 	if m.beforeAttempt != nil {
@@ -665,7 +671,13 @@ func (m *txManager) processTransactionStep(
 			return m.scheduleNextCheckNotBefore(tx, attempts, retryAt)
 		}
 	}
-	if resumeBroadcast {
+	fundsRetry := len(attempts) > 0 &&
+		(insufficientFundsMessage(tx.Msg) || strings.HasPrefix(recoveryPrimary(tx.Msg), CancellationReasonFunding)) &&
+		isCancellationTransaction(
+			attempts[len(attempts)-1].Tx, tx.Sender, tx.Address, tx.Data, tx.Value,
+			logicalHasAuthorization(tx, attempts),
+		)
+	if resumeBroadcast && !recoverPayload && !fundsRetry {
 		return m.broadcastAndSchedule(ctx, tx, attempts, broadcastPolicy{
 			nonceReleasable: lane.isTip(*tx.AssignedNonce),
 		})
@@ -702,10 +714,9 @@ func (m *txManager) processTransactionStep(
 	if len(attempts) < maxFeeReplacements {
 		return m.createAndBroadcastAttempt(ctx, tx, attempts, false)
 	}
-	// The cap limits newly signed fee replacements, not propagation of the
-	// durable candidate. A previously accepted transaction may be evicted from
-	// a node's mempool; periodically resending the exact hash is idempotent and
-	// cannot migrate the logical payload to another nonce.
+	if _, enabled := m.cancellationAge(tx.ChainID); enabled && !plainSelfTransfer(tx, attempts) {
+		return m.recoverExhaustedNonce(ctx, tx, attempts, lane)
+	}
 	return m.broadcastAndSchedule(ctx, tx, attempts, broadcastPolicy{
 		nonceReleasable: lane.isTip(*tx.AssignedNonce),
 	})
@@ -843,6 +854,8 @@ type broadcastPolicy struct {
 	// nonceReleasable is set when this row owns the lane's highest durable
 	// assignment, so releasing its nonce cannot orphan an assigned follower.
 	nonceReleasable bool
+	// notDurableLatest means this send is older than the newest stored attempt.
+	notDurableLatest bool
 }
 
 // broadcastAndSchedule sends the newest durable candidate and records what the
@@ -858,9 +871,7 @@ func (m *txManager) broadcastAndSchedule(
 	if err := m.clients[tx.ChainID].SendTransaction(ctx, attempts[len(attempts)-1].Tx); err != nil {
 		return m.handleBroadcastFailure(ctx, tx, attempts, err, policy)
 	}
-	// A hash accepted microseconds ago cannot have been mined yet, so there is
-	// nothing to reconcile on the success path.
-	tx.Msg = ""
+	tx.Msg = preservedRecoveryMessage(tx.Msg)
 	tx.BroadcastPending = false
 	tx.RejectedAttemptHash = nil
 	return m.scheduleNextCheck(tx, attempts)
@@ -895,16 +906,25 @@ func (m *txManager) handleBroadcastFailure(
 	tx.RejectedAttemptHash = nil
 	switch disposition {
 	case broadcastAlreadyKnown:
-		tx.Msg = ""
+		tx.Msg = preservedRecoveryMessage(tx.Msg)
 		tx.BroadcastPending = false
 	case broadcastNonceConsumed:
 		tx.Msg = reason
 		tx.NonceConsumedAt = &now
 		tx.BroadcastPending = false
 	case broadcastFeeRejected:
-		tx.Msg = reason
+		if !policy.notDurableLatest || !replacementUnderpricedMessage(tx.Msg) {
+			tx.Msg = reason
+		}
 		tx.BroadcastPending = false
 	case broadcastTransactionRejectedPermanent:
+		if policy.notDurableLatest {
+			tx.BroadcastPending = false
+			if !replacementUnderpricedMessage(tx.Msg) {
+				tx.Msg = reason
+			}
+			break
+		}
 		tx.Msg = reason
 		// Before the durable grace boundary, a rejection observed while replaying
 		// a recovered hash cannot prove the original call was never admitted.
@@ -916,11 +936,27 @@ func (m *txManager) handleBroadcastFailure(
 			tx.RejectedAttemptHash = &rejectedHash
 		}
 	case broadcastTransactionRejectedRetryable:
-		tx.Msg = reason
+		if kept := preservedRecoveryMessage(tx.Msg); kept != "" {
+			tx.Msg = kept
+		} else {
+			tx.Msg = reason
+		}
+		// BroadcastPending resends the durable latest, which is not this older hash.
+		if policy.notDurableLatest {
+			tx.BroadcastPending = false
+			break
+		}
 		// State or service health may make this exact envelope viable later.
 		// Preserve its nonce and retry it without manufacturing followers.
 		tx.BroadcastPending = true
 	default:
+		if policy.notDurableLatest {
+			if kept := preservedRecoveryMessage(tx.Msg); kept != "" {
+				tx.Msg = kept
+			}
+			tx.BroadcastPending = false
+			break
+		}
 		tx.Msg = "ambiguous " + reason
 		tx.BroadcastPending = true
 	}
@@ -947,7 +983,7 @@ func (m *txManager) handleBroadcastFailure(
 	// A receipt always wins over the send response: an earlier candidate may
 	// have mined while a replacement or replay was being submitted.
 	if receipt, winner, receiptErr := m.findKnownReceipt(ctx, tx.ChainID, attempts); receipt != nil {
-		return m.finalizeTransaction(tx, winner, receipt)
+		return m.finalizeTransaction(tx, winner, receipt, logicalHasAuthorization(tx, attempts))
 	} else if receiptErr != nil {
 		tx.Msg = appendReconciliationError(tx.Msg, receiptErr)
 		notBefore := time.Time{}
@@ -960,7 +996,7 @@ func (m *txManager) handleBroadcastFailure(
 		return m.scheduleNextCheckNotBefore(tx, attempts, notBefore)
 	}
 
-	if rejected {
+	if rejected && !policy.notDurableLatest {
 		if mayReconcile {
 			return m.reconcileRejectedSubmission(ctx, tx, attempts, now, policy.nonceReleasable)
 		}
@@ -1291,7 +1327,11 @@ func (m *txManager) finalizeTransaction(
 	tx txmngr_provider.Transaction,
 	winner *types.Transaction,
 	receipt *types.Receipt,
+	logicalHasAuth bool,
 ) error {
+	if isCancellationTransaction(winner, tx.Sender, tx.Address, tx.Data, tx.Value, logicalHasAuth) {
+		return m.finalizeCancellation(tx, winner, receipt)
+	}
 	tx.Tx = winner
 	tx.Receipt = receipt
 	tx.Msg = ""
@@ -1301,6 +1341,7 @@ func (m *txManager) finalizeTransaction(
 	} else {
 		tx.Status = txmngr_provider.SucceedTxStatus
 	}
+	m.observeIncludedPayload(tx)
 	return m.persistTerminal(tx)
 }
 
@@ -1376,6 +1417,9 @@ func (m *txManager) scheduleNextCheckNotBefore(
 	}
 	if len(attempts) > 0 {
 		tx.Status = txmngr_provider.ConfirmingTxStatus
+	}
+	if tx.Msg == "" && hasCancellationAttempt(attempts, tx.Sender) && !tx.IsCompleted() {
+		tx.Msg = CancellationReasonPending
 	}
 	tx.Msg = transactionMessageTail(tx.Msg)
 	tx.NextActionAt = next
@@ -1522,15 +1566,18 @@ func rpcErrorCode(err error) int {
 // transport endpoints, credentials, response bodies, and bearer tokens never
 // reach durable transaction messages or logs.
 // redactedRPCError wraps err in an operation description with a message that is
-// safe to persist and log. Cancellation and deadline errors are re-wrapped with
-// %w because they carry no endpoint or credential and callers legitimately
-// branch on them; every other RPC error is flattened to a redacted summary so a
-// URL or bearer token can never reach tx.Msg.
+// safe to persist and log. Cancellation and deadline errors keep a fresh
+// sentinel so callers can use errors.Is. The original error is not formatted:
+// a url.Error unwraps to the deadline and its Error text contains the endpoint.
 func redactedRPCError(operation string, err error) error {
-	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-		return fmt.Errorf("%s: %w", operation, err)
+	switch {
+	case errors.Is(err, context.Canceled):
+		return fmt.Errorf("%s: %s: %w", operation, rpcErrorSummary(err), context.Canceled)
+	case errors.Is(err, context.DeadlineExceeded):
+		return fmt.Errorf("%s: %s: %w", operation, rpcErrorSummary(err), context.DeadlineExceeded)
+	default:
+		return fmt.Errorf("%s: %s", operation, rpcErrorSummary(err))
 	}
-	return fmt.Errorf("%s: %s", operation, rpcErrorSummary(err))
 }
 
 func rpcErrorSummary(err error) string {
@@ -1676,7 +1723,15 @@ func (m *txManager) rescheduleTransaction(tx txmngr_provider.Transaction, cause 
 		return
 	}
 	tx = *current
-	tx.Msg = transactionMessageTail(cause.Error())
+	kept := preservedRecoveryMessage(tx.Msg)
+	if kept == "" && insufficientFundsMessage(tx.Msg) {
+		kept = tx.Msg
+	}
+	if kept != "" {
+		tx.Msg = appendReconciliationError(kept, cause)
+	} else {
+		tx.Msg = transactionMessageTail(cause.Error())
+	}
 	tx.NextActionAt = time.Now().Add(m.blockTime(tx.ChainID))
 	tx.UpdatedAt = time.Now()
 	if tx.Tx != nil || tx.AssignedNonce != nil {

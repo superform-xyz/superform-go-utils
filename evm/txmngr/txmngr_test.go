@@ -1949,7 +1949,7 @@ func TestTerminalIntentNotificationSurvivesMissingCallback(t *testing.T) {
 
 	winner := legacyTx()
 	receipt := &types.Receipt{TxHash: winner.Hash(), Status: types.ReceiptStatusSuccessful}
-	require.NoError(t, f.mngr.finalizeTransaction(record, winner, receipt))
+	require.NoError(t, f.mngr.finalizeTransaction(record, winner, receipt, false))
 
 	terminal := f.get(record.ID)
 	require.Nil(t, terminal.NotifiedAt, "missing callback must not acknowledge an intent notification")
