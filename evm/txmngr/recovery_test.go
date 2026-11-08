@@ -375,4 +375,20 @@ func TestRPCErrorSummaryRedactsCredentialsAndTransportDetails(t *testing.T) {
 	})
 	require.Equal(t, "rpc HTTP status 401", httpSummary)
 	require.NotContains(t, httpSummary, "credential-bearing")
+
+	deadlineErr := redactedRPCError("reading header", &url.Error{
+		Op:  "Post",
+		URL: "https://rpc-user:rpc-password@rpc.example/secret",
+		Err: context.DeadlineExceeded,
+	})
+	require.ErrorIs(t, deadlineErr, context.DeadlineExceeded)
+	require.NotContains(t, deadlineErr.Error(), "rpc-password")
+	require.NotContains(t, deadlineErr.Error(), "rpc.example")
+	canceledErr := redactedRPCError("reading sender balance", &url.Error{
+		Op:  "Post",
+		URL: "https://rpc-user:rpc-password@rpc.example/secret",
+		Err: context.Canceled,
+	})
+	require.ErrorIs(t, canceledErr, context.Canceled)
+	require.NotContains(t, canceledErr.Error(), "rpc-password")
 }
