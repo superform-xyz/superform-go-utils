@@ -611,7 +611,7 @@ func (m *txManager) processTransactionStep(
 		// old-signer attempt reach a terminal state after key rotation and repairs
 		// stale parent sender/nonce fields from the immutable winning attempt.
 		if receipt, winner, receiptErr := m.findKnownReceipt(ctx, tx.ChainID, attempts); receipt != nil {
-			return m.finalizeTransaction(tx, winner, receipt, logicalHasAuthorization(tx, attempts))
+			return m.finalizeTransaction(tx, winner, receipt, attempts)
 		} else if receiptErr != nil {
 			tx.Msg = appendReconciliationError(tx.Msg, receiptErr)
 			receiptReadFailed = true
@@ -735,8 +735,12 @@ func (m *txManager) pollConsumedNonce(
 		if tx.AssignedNonce != nil {
 			nonce = *tx.AssignedNonce
 		}
-		return m.abandonTransaction(tx, fmt.Sprintf(
-			"nonce %d was consumed by another transaction and no attempt was mined", nonce))
+		if err := m.abandonTransaction(tx, fmt.Sprintf(
+			"nonce %d was consumed by another transaction and no attempt was mined", nonce)); err != nil {
+			return err
+		}
+		m.releaseConsumedNonce(tx, attempts)
+		return nil
 	}
 	return m.scheduleNextCheck(tx, attempts)
 }
@@ -983,7 +987,7 @@ func (m *txManager) handleBroadcastFailure(
 	// A receipt always wins over the send response: an earlier candidate may
 	// have mined while a replacement or replay was being submitted.
 	if receipt, winner, receiptErr := m.findKnownReceipt(ctx, tx.ChainID, attempts); receipt != nil {
-		return m.finalizeTransaction(tx, winner, receipt, logicalHasAuthorization(tx, attempts))
+		return m.finalizeTransaction(tx, winner, receipt, attempts)
 	} else if receiptErr != nil {
 		tx.Msg = appendReconciliationError(tx.Msg, receiptErr)
 		notBefore := time.Time{}
@@ -1327,10 +1331,11 @@ func (m *txManager) finalizeTransaction(
 	tx txmngr_provider.Transaction,
 	winner *types.Transaction,
 	receipt *types.Receipt,
-	logicalHasAuth bool,
+	attempts []txmngr_provider.TransactionAttempt,
 ) error {
-	if isCancellationTransaction(winner, tx.Sender, tx.Address, tx.Data, tx.Value, logicalHasAuth) {
-		return m.finalizeCancellation(tx, winner, receipt)
+	hasAuth := logicalHasAuthorization(tx, attempts)
+	if isCancellationTransaction(winner, tx.Sender, tx.Address, tx.Data, tx.Value, hasAuth) {
+		return m.finalizeCancellation(tx, winner, receipt, attempts)
 	}
 	tx.Tx = winner
 	tx.Receipt = receipt
@@ -1341,7 +1346,7 @@ func (m *txManager) finalizeTransaction(
 	} else {
 		tx.Status = txmngr_provider.SucceedTxStatus
 	}
-	m.observeIncludedPayload(tx)
+	m.observeIncludedPayload(tx, attempts)
 	return m.persistTerminal(tx)
 }
 

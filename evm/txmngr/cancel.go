@@ -47,6 +47,7 @@ const (
 	LaneRecoveryUnsupported      LaneRecoveryStatus = "unsupported"
 	LaneRecoveryCancelled        LaneRecoveryStatus = "cancelled"
 	LaneRecoveryIncluded         LaneRecoveryStatus = "included"
+	LaneRecoveryConsumed         LaneRecoveryStatus = "consumed"
 )
 
 // LaneRecoveryEvent amounts are wei. Nil means that figure was not read.
@@ -401,6 +402,7 @@ func (m *txManager) finalizeCancellation(
 	tx txmngr_provider.Transaction,
 	winner *types.Transaction,
 	receipt *types.Receipt,
+	attempts []txmngr_provider.TransactionAttempt,
 ) error {
 	log.Warn().Str("txId", tx.ID).Uint64("chainId", tx.ChainID).
 		Str("hash", winner.Hash().Hex()).Uint64("nonce", winner.Nonce()).
@@ -411,24 +413,17 @@ func (m *txManager) finalizeCancellation(
 	tx.Status = txmngr_provider.ErroredTxStatus
 	tx.Msg = CancellationReasonMined
 	if m.laneRecovery != nil {
-		attempts, err := m.transactionsQ.SelectAttempts(tx.ID)
-		if err != nil {
-			log.Warn().Err(err).Str("txId", tx.ID).Uint64("chainId", tx.ChainID).
-				Msg("cancellation attempt read failed; lane age is omitted")
-		} else {
-			payload, _ := splitAttempts(attempts, tx.Sender, tx.Address, tx.Data, tx.Value, logicalHasAuthorization(tx, attempts))
-			m.emitRecovery(tx, payload, LaneRecoveryCancelled, nil, nil)
-		}
+		payload, _ := splitAttempts(attempts, tx.Sender, tx.Address, tx.Data, tx.Value, logicalHasAuthorization(tx, attempts))
+		m.emitRecovery(tx, payload, LaneRecoveryCancelled, nil, nil)
 	}
 	return m.persistTerminal(tx)
 }
 
-func (m *txManager) observeIncludedPayload(tx txmngr_provider.Transaction) {
+func (m *txManager) observeIncludedPayload(
+	tx txmngr_provider.Transaction,
+	attempts []txmngr_provider.TransactionAttempt,
+) {
 	if _, enabled := m.cancellationAge(tx.ChainID); !enabled || m.laneRecovery == nil {
-		return
-	}
-	attempts, err := m.transactionsQ.SelectAttempts(tx.ID)
-	if err != nil {
 		return
 	}
 	payload, cancels := splitAttempts(attempts, tx.Sender, tx.Address, tx.Data, tx.Value, logicalHasAuthorization(tx, attempts))
@@ -436,6 +431,28 @@ func (m *txManager) observeIncludedPayload(tx txmngr_provider.Transaction) {
 		return
 	}
 	m.emitRecovery(tx, payload, LaneRecoveryIncluded, nil, nil)
+}
+
+// releaseConsumedNonce publishes the terminal status for an assigned nonce that
+// left the active set without a receipt. Cancelled and included do not apply:
+// neither our cancellation nor the payload was mined. Without this event the
+// chain gauge keeps the last non-terminal head and drops every higher nonce.
+func (m *txManager) releaseConsumedNonce(
+	tx txmngr_provider.Transaction,
+	attempts []txmngr_provider.TransactionAttempt,
+) {
+	if m.laneRecovery == nil || tx.AssignedNonce == nil {
+		return
+	}
+	if _, enabled := m.cancellationAge(tx.ChainID); !enabled {
+		return
+	}
+	hasAuth := logicalHasAuthorization(tx, attempts)
+	payload, cancels := splitAttempts(attempts, tx.Sender, tx.Address, tx.Data, tx.Value, hasAuth)
+	if len(cancels) == 0 && (len(payload) < maxFeeReplacements || plainSelfTransfer(tx, attempts)) {
+		return
+	}
+	m.emitRecovery(tx, payload, LaneRecoveryConsumed, nil, nil)
 }
 
 type cancelQuote struct {
