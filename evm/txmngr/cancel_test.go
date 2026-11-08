@@ -81,6 +81,7 @@ type exhaustedBuild struct {
 	baseFee    int64
 	suggested  int64
 	tipQuote   int64
+	optedOut   bool
 }
 
 func (b exhaustedBuild) policy() Option {
@@ -155,10 +156,14 @@ func newExhaustedLane(t *testing.T, build exhaustedBuild) (*fixture, *mock.EthCl
 			Nonce:   1,
 		}}
 	}
+	var managerOpts []Option
+	if !build.optedOut {
+		managerOpts = []Option{build.policy()}
+	}
 	f := newFixture(t, fixtureOpts{
 		auth:         auth,
 		client:       client,
-		managerOpts:  []Option{build.policy()},
+		managerOpts:  managerOpts,
 		bumpInterval: build.bump,
 		seed:         map[string]txmngr_provider.Transaction{build.id: row},
 	})
@@ -330,6 +335,106 @@ func TestIncludablePayloadIsRebroadcastUntilTheAgeBound(t *testing.T) {
 	require.Len(t, attempts, maxFeeReplacements)
 	require.Equal(t, latest.Hash(), attempts[len(attempts)-1].Hash)
 	require.NotEqual(t, txmngr_provider.SucceedTxStatus, f.get("exhausted").Status)
+}
+
+func underpricedPayload(latest *types.Transaction) string {
+	return "broadcast attempt " + latest.Hash().Hex() + ": replacement transaction underpriced"
+}
+
+func TestAcceptedRebroadcastClearsAnUnderpricedPayload(t *testing.T) {
+	t.Parallel()
+	f, cl, _, latest := newExhaustedLane(t, exhaustedBuild{
+		nonce:    50,
+		optedOut: true,
+		age:      time.Hour,
+	})
+	row := f.get("exhausted")
+	row.Msg = underpricedPayload(latest)
+	row.BroadcastPending = false
+	require.NoError(t, f.db.Insert(*row))
+	cl.On("SendTransaction", mock2.Anything, latest).Return(nil).Once()
+
+	require.NoError(t, f.step("exhausted"))
+	stored := f.get("exhausted")
+	require.Empty(t, stored.Msg)
+	require.False(t, stored.BroadcastPending)
+	require.Equal(t, txmngr_provider.ConfirmingTxStatus, stored.Status)
+	require.NotNil(t, stored.AssignedNonce)
+	require.Equal(t, uint64(50), *stored.AssignedNonce)
+}
+
+func TestRetryableRejectionReplacesAnUnderpricedPayload(t *testing.T) {
+	t.Parallel()
+	f, cl, _, latest := newExhaustedLane(t, exhaustedBuild{
+		nonce:    51,
+		optedOut: true,
+		age:      time.Hour,
+	})
+	row := f.get("exhausted")
+	row.Msg = underpricedPayload(latest)
+	row.BroadcastPending = false
+	require.NoError(t, f.db.Insert(*row))
+	cl.On("SendTransaction", mock2.Anything, latest).
+		Return(testRPCError{code: -38014, message: "insufficient funds for gas * price + value"}).Once()
+
+	require.NoError(t, f.step("exhausted"))
+	stored := f.get("exhausted")
+	require.Contains(t, stored.Msg, "insufficient funds")
+	require.NotContains(t, stored.Msg, "underpriced")
+	require.True(t, stored.BroadcastPending)
+	require.NotNil(t, stored.AssignedNonce)
+	require.Equal(t, uint64(51), *stored.AssignedNonce)
+	attempts, err := f.db.SelectAttempts("exhausted")
+	require.NoError(t, err)
+	require.Len(t, attempts, maxFeeReplacements)
+}
+
+func TestPriceFloorRejectionRepricesTheCancel(t *testing.T) {
+	t.Parallel()
+	f, cl, _, _ := newExhaustedLane(t, exhaustedBuild{
+		nonce:     52,
+		suggested: 100,
+		baseFee:   50,
+		balance:   big.NewInt(1 << 60),
+		age:       time.Hour,
+	})
+	cancel, err := f.auth.Signer(f.auth.From, types.NewTx(&types.LegacyTx{
+		Nonce:    52,
+		To:       &f.auth.From,
+		Gas:      params.TxGas,
+		GasPrice: big.NewInt(110),
+		Value:    big.NewInt(0),
+	}))
+	require.NoError(t, err)
+	f.seedAttempt("exhausted", cancel, time.Now().Add(-time.Minute))
+	row := f.get("exhausted")
+	row.Tx = cancel
+	row.BroadcastPending = true
+	row.Msg = ""
+	require.NoError(t, f.db.Insert(*row))
+	cl.On("SendTransaction", mock2.Anything, cancel).
+		Return(testRPCError{
+			code:    -32000,
+			message: "transaction gas price below minimum: gas tip cap 110, minimum needed 200",
+		}).Once()
+	cl.On("SendTransaction", mock2.Anything, mock2.MatchedBy(func(tx *types.Transaction) bool {
+		return tx.To() != nil && *tx.To() == f.auth.From && tx.GasPrice().Cmp(big.NewInt(110)) > 0
+	})).Return(nil).Once()
+
+	require.NoError(t, f.step("exhausted"))
+	rejected := f.get("exhausted")
+	require.Contains(t, rejected.Msg, "transaction gas price below minimum")
+	require.False(t, rejected.BroadcastPending)
+	attempts, err := f.db.SelectAttempts("exhausted")
+	require.NoError(t, err)
+	require.Len(t, attempts, maxFeeReplacements+1)
+
+	require.NoError(t, f.step("exhausted"))
+	repriced, err := f.db.SelectAttempts("exhausted")
+	require.NoError(t, err)
+	require.Len(t, repriced, maxFeeReplacements+2)
+	require.Positive(t, repriced[len(repriced)-1].Tx.GasPrice().Cmp(big.NewInt(110)))
+	require.Equal(t, uint64(52), repriced[len(repriced)-1].Tx.Nonce())
 }
 
 func TestPendingAgeUsesTheNewestPayloadSignature(t *testing.T) {
