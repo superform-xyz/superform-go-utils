@@ -138,11 +138,6 @@ func (m *txManager) recoverExhaustedNonce(
 	attempts []txmngr_provider.TransactionAttempt,
 	lane *nonceLane,
 ) error {
-	if plainSelfTransfer(tx, attempts) {
-		return m.broadcastAndSchedule(ctx, tx, attempts, broadcastPolicy{
-			nonceReleasable: lane.isTip(*tx.AssignedNonce),
-		})
-	}
 	hasAuth := logicalHasAuthorization(tx, attempts)
 	payload, cancels := splitAttempts(attempts, tx.Sender, tx.Address, tx.Data, tx.Value, hasAuth)
 	if len(payload) == 0 || payload[len(payload)-1].Tx == nil {
@@ -183,9 +178,7 @@ func (m *txManager) recoverExhaustedNonce(
 			}
 			short := fundedShortfall(latestCancel.Cost(), others, quote.balance)
 			if short != nil {
-				tx.Msg = fundingMessage(short, quote.balance)
-				m.emitRecovery(tx, payload, LaneRecoveryFunding, short, quote.balance)
-				return m.holdRecovery(tx, attempts)
+				return m.holdFundingRecovery(tx, attempts, payload, short, quote.balance)
 			}
 			tx.Msg = ""
 		}
@@ -211,6 +204,16 @@ func (m *txManager) recoverExhaustedNonce(
 		})
 	}
 	if len(cancels) >= maxCancelSignatures {
+		if tx.AssignedNonce == nil {
+			return errors.New("cannot price cancellation funding without an assigned nonce")
+		}
+		others, siblingErr := m.siblingNonceCost(tx.ChainID, *tx.AssignedNonce)
+		if siblingErr != nil {
+			return siblingErr
+		}
+		if short := fundedShortfall(latestCancel.Cost(), others, quote.balance); short != nil {
+			return m.holdFundingRecovery(tx, attempts, payload, short, quote.balance)
+		}
 		tx.Msg = CancellationReasonSignatureCap
 		m.emitRecovery(tx, payload, LaneRecoverySignatureLimited, nil, quote.balance)
 		return m.broadcastAndSchedule(ctx, tx, attempts, broadcastPolicy{
@@ -237,11 +240,12 @@ func (m *txManager) recoverExhaustedNonce(
 	if signed == nil {
 		if latestCancel != nil && tx.AssignedNonce != nil {
 			if short := fundedShortfall(latestCancel.Cost(), others, quote.balance); short != nil {
-				tx.Msg = fundingMessage(short, quote.balance)
-				m.emitRecovery(tx, payload, LaneRecoveryFunding, short, quote.balance)
-				return m.holdRecovery(tx, attempts)
+				return m.holdFundingRecovery(tx, attempts, payload, short, quote.balance)
 			}
-		} else if strings.HasPrefix(tx.Msg, CancellationReasonFunding) {
+		} else if strings.HasPrefix(recoveryPrimary(tx.Msg), CancellationReasonFunding) {
+			if required, available, ok := FundingShortfall(tx.Msg); ok {
+				return m.holdFundingRecovery(tx, attempts, payload, required, available)
+			}
 			return m.holdRecovery(tx, attempts)
 		}
 		if rejectedReplacement {
@@ -330,8 +334,9 @@ func (m *txManager) persistCancellation(
 					Str("available_wei", intString(quote.balance)).
 					Msg("sender cannot fund same-nonce cancellation")
 			}
+			// The caller emits only when it holds. An affordable in-pool cancel
+			// is resent, and this unsigned bump must not be reported as a hold.
 			tx.Msg = fundingMessage(short, quote.balance)
-			m.emitRecovery(*tx, payload, LaneRecoveryFunding, short, quote.balance)
 			return nil, pricing, nil
 		}
 		signed, signErr := m.signCancellation(ctx, *tx, pricing)
@@ -392,6 +397,16 @@ func (m *txManager) holdRecovery(
 	return m.scheduleNextCheck(tx, attempts)
 }
 
+func (m *txManager) holdFundingRecovery(
+	tx txmngr_provider.Transaction,
+	attempts, payload []txmngr_provider.TransactionAttempt,
+	required, available *big.Int,
+) error {
+	tx.Msg = fundingMessage(required, available)
+	m.emitRecovery(tx, payload, LaneRecoveryFunding, required, available)
+	return m.holdRecovery(tx, attempts)
+}
+
 func (m *txManager) finalizeCancellation(
 	tx txmngr_provider.Transaction,
 	winner *types.Transaction,
@@ -406,11 +421,16 @@ func (m *txManager) finalizeCancellation(
 	tx.RejectedAttemptHash = nil
 	tx.Status = txmngr_provider.ErroredTxStatus
 	tx.Msg = CancellationReasonMined
+	if err := m.persistTerminal(tx); err != nil {
+		return err
+	}
+	// The observer follows the durable row. A rejected write must not
+	// publish a cancelled nonce that this lane still owns.
 	if m.laneRecovery != nil {
 		payload, _ := splitAttempts(attempts, tx.Sender, tx.Address, tx.Data, tx.Value, logicalHasAuthorization(tx, attempts))
 		m.emitRecovery(tx, payload, LaneRecoveryCancelled, nil, nil)
 	}
-	return m.persistTerminal(tx)
+	return nil
 }
 
 func (m *txManager) observeIncludedPayload(
@@ -826,6 +846,15 @@ func attemptsCarryAuthorization(attempts []txmngr_provider.TransactionAttempt) b
 	return false
 }
 
+func isZeroValueSelfTransfer(tx *types.Transaction, sender common.Address) bool {
+	if tx == nil || tx.To() == nil || *tx.To() != sender {
+		return false
+	}
+	return len(tx.Data()) == 0 &&
+		len(tx.SetCodeAuthorizations()) == 0 &&
+		(tx.Value() == nil || tx.Value().Sign() == 0)
+}
+
 func isCancellationTransaction(
 	tx *types.Transaction,
 	sender, logicalTo common.Address,
@@ -833,13 +862,7 @@ func isCancellationTransaction(
 	logicalValue *big.Int,
 	logicalHasAuth bool,
 ) bool {
-	if tx == nil || tx.To() == nil || *tx.To() != sender {
-		return false
-	}
-	if len(tx.Data()) != 0 || len(tx.SetCodeAuthorizations()) > 0 {
-		return false
-	}
-	if tx.Value() != nil && tx.Value().Sign() != 0 {
+	if !isZeroValueSelfTransfer(tx, sender) {
 		return false
 	}
 	logicalCancel := !logicalHasAuth && logicalTo == sender && len(logicalData) == 0 &&
@@ -854,9 +877,7 @@ func hasCancellationAttempt(attempts []txmngr_provider.TransactionAttempt, sende
 		if attempt.Tx == nil || attempt.Tx.To() == nil {
 			continue
 		}
-		self := *attempt.Tx.To() == sender && len(attempt.Tx.Data()) == 0 &&
-			(attempt.Tx.Value() == nil || attempt.Tx.Value().Sign() == 0) &&
-			len(attempt.Tx.SetCodeAuthorizations()) == 0
+		self := isZeroValueSelfTransfer(attempt.Tx, sender)
 		if self {
 			seenCancel = true
 			continue

@@ -947,7 +947,18 @@ func (m *txManager) handleBroadcastFailure(
 		if !policy.notDurableLatest {
 			keep = admittedRecoveryMessage
 		}
-		if kept := keep(tx.Msg); kept != "" {
+		// A fresh funds rejection of the durable latest cancel has to stay in
+		// the primary message. Fee-limit and signature-cap markers would hide
+		// it, and the next pass would resend without reading the balance.
+		freshCancelFunds := !policy.notDurableLatest &&
+			insufficientFundsMessage(reason) &&
+			isCancellationTransaction(
+				latest.Tx, tx.Sender, tx.Address, tx.Data, tx.Value,
+				logicalHasAuthorization(tx, attempts),
+			)
+		if freshCancelFunds {
+			tx.Msg = reason
+		} else if kept := keep(tx.Msg); kept != "" {
 			tx.Msg = kept
 		} else {
 			tx.Msg = reason
@@ -1062,11 +1073,16 @@ func (m *txManager) reconcileRejectedSubmission(
 			)
 			return m.scheduleRetryAfterBlock(tx, attempts)
 		}
+		assigned := tx.AssignedNonce
 		tx.AssignedNonce = nil
 		tx.BroadcastPending = false
 		if err = m.abandonTransaction(tx, reason); err != nil {
 			return err
 		}
+		// The durable row releases the nonce. The event still names the head
+		// that just became terminal, and only the local copy is restored.
+		tx.AssignedNonce = assigned
+		m.releaseConsumedNonce(tx, attempts)
 		return errLaneStateChanged
 	case pendingNonce > latest.Nonce:
 		// The exact hash is absent but the node has moved beyond its nonce,
@@ -1353,8 +1369,11 @@ func (m *txManager) finalizeTransaction(
 	} else {
 		tx.Status = txmngr_provider.SucceedTxStatus
 	}
+	if err := m.persistTerminal(tx); err != nil {
+		return err
+	}
 	m.observeIncludedPayload(tx, attempts)
-	return m.persistTerminal(tx)
+	return nil
 }
 
 // abandonTransaction records a transaction that can never be mined. Reaching a
