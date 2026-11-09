@@ -75,10 +75,11 @@ func TestAdditionalInfoReadsReturnFactsWithoutEligibilityPolicy(t *testing.T) {
 func TestDecodeSpotMetaAndAssetCtxsWithoutTransport(t *testing.T) {
 	meta, contexts, err := DecodeSpotMetaAndAssetCtxs([]json.RawMessage{
 		json.RawMessage(`{"tokens":[{"name":"HYPE","index":150,"weiDecimals":8}]}`),
-		json.RawMessage(`[{"midPx":null,"markPx":"24.123456789"}]`),
+		json.RawMessage(`[{"coin":"@107","midPx":null,"markPx":"24.123456789"}]`),
 	})
 	require.NoError(t, err)
 	require.Equal(t, int64(150), meta.Tokens[0].Index)
+	require.Equal(t, "@107", contexts[0].Coin)
 	require.Nil(t, contexts[0].MidPx)
 	require.Equal(t, "24.123456789", *contexts[0].MarkPx)
 	_, _, err = DecodeSpotMetaAndAssetCtxs([]json.RawMessage{json.RawMessage(`{}`)})

@@ -11,7 +11,10 @@ import (
 // BpsBase is the basis-point denominator (10000 = 100%).
 const BpsBase = 10000
 
-var ten = big.NewInt(10)
+var (
+	one = big.NewInt(1)
+	ten = big.NewInt(10)
+)
 
 // Pow10 returns 10^decimals as a new *big.Int.
 func Pow10(decimals uint) *big.Int {
@@ -145,8 +148,14 @@ func MulBpsCeil(amount *big.Int, bps uint64) *big.Int {
 	if bps > BpsBase {
 		return new(big.Int).Set(amount)
 	}
-	base := big.NewInt(BpsBase)
-	out := new(big.Int).Mul(amount, new(big.Int).SetUint64(bps))
-	out.Add(out, big.NewInt(BpsBase-1))
-	return out.Quo(out, base)
+	return MulDivCeil(amount, new(big.Int).SetUint64(bps), big.NewInt(BpsBase))
+}
+
+// MulDivCeil returns ceil(amount * numerator / denominator). amount and numerator
+// must be non-negative and denominator positive.
+func MulDivCeil(amount, numerator, denominator *big.Int) *big.Int {
+	out := new(big.Int).Mul(amount, numerator)
+	out.Add(out, denominator)
+	out.Sub(out, one)
+	return out.Quo(out, denominator)
 }
