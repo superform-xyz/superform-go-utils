@@ -486,6 +486,33 @@ func TestCancellationReceiptIsNotStrategySuccess(t *testing.T) {
 	require.NotEqual(t, txmngr_provider.SucceedTxStatus, stored.Status)
 }
 
+func TestTerminalRecoveryWaitsForTheRowWrite(t *testing.T) {
+	t.Parallel()
+	f, _, _, latest := newExhaustedLane(t, exhaustedBuild{
+		nonce:     64,
+		suggested: 100,
+		baseFee:   50,
+		balance:   big.NewInt(1 << 60),
+	})
+	row := f.get("exhausted")
+	row.Status = txmngr_provider.SucceedTxStatus
+	require.NoError(t, f.db.Insert(*row))
+	attempts, err := f.db.SelectAttempts("exhausted")
+	require.NoError(t, err)
+	emitted := 0
+	f.mngr.laneRecovery = func(event LaneRecoveryEvent) {
+		if event.Status == LaneRecoveryCancelled || event.Status == LaneRecoveryIncluded {
+			emitted++
+		}
+	}
+	receipt := &types.Receipt{Status: types.ReceiptStatusSuccessful, TxHash: latest.Hash()}
+
+	require.ErrorIs(t, f.mngr.finalizeCancellation(*row, latest, receipt, attempts), txmngr_provider.ErrStaleTransaction)
+	require.ErrorIs(t, f.mngr.finalizeTransaction(*row, latest, receipt, attempts), txmngr_provider.ErrStaleTransaction)
+	require.Zero(t, emitted)
+	require.Equal(t, txmngr_provider.SucceedTxStatus, f.get("exhausted").Status)
+}
+
 func TestCancelledGaugeUsesOldestPayloadSignature(t *testing.T) {
 	t.Parallel()
 	f, cl, client, _ := newExhaustedLane(t, exhaustedBuild{
@@ -611,6 +638,12 @@ func TestFundingShortageDoesNotSignOrFreeTheLane(t *testing.T) {
 	cl.On("SendTransaction", mock2.Anything, mock2.Anything).Return(nil).Maybe()
 	cl.On("PendingNonceAt", mock2.Anything, f.auth.From).Return(nonce, nil).Maybe()
 	calls := countSigner(f.auth)
+	fundingEvents := 0
+	f.mngr.laneRecovery = func(event LaneRecoveryEvent) {
+		if event.Status == LaneRecoveryFunding {
+			fundingEvents++
+		}
+	}
 
 	f.mngr.processLaneBatch(t.Context(), uint64(chainId))
 	attempts, err := f.db.SelectAttempts("exhausted")
@@ -628,6 +661,7 @@ func TestFundingShortageDoesNotSignOrFreeTheLane(t *testing.T) {
 	require.NotNil(t, stored.AssignedNonce)
 	require.Equal(t, nonce, *stored.AssignedNonce)
 	require.Nil(t, f.get("other-vault").AssignedNonce)
+	require.Equal(t, 1, fundingEvents)
 
 	require.NoError(t, f.step("exhausted"))
 	require.Zero(t, *calls)
@@ -1134,6 +1168,12 @@ func TestRepriceRefusalRepublishesTheSignedCancel(t *testing.T) {
 	row.BroadcastPending = false
 	require.NoError(t, f.db.Insert(*row))
 	calls := countSigner(f.auth)
+	fundingEvents := 0
+	f.mngr.laneRecovery = func(event LaneRecoveryEvent) {
+		if event.Status == LaneRecoveryFunding {
+			fundingEvents++
+		}
+	}
 	cl.On("SendTransaction", mock2.Anything, cancel).Return(nil).Once()
 
 	require.NoError(t, f.step("exhausted"))
@@ -1142,6 +1182,7 @@ func TestRepriceRefusalRepublishesTheSignedCancel(t *testing.T) {
 	require.Len(t, attempts, maxFeeReplacements+1)
 	require.Equal(t, cancel.Hash(), attempts[len(attempts)-1].Hash)
 	require.Zero(t, *calls)
+	require.Zero(t, fundingEvents)
 	require.Contains(t, f.get("exhausted").Msg, CancellationReasonFunding)
 	require.False(t, f.get("exhausted").BroadcastPending)
 }
@@ -1757,4 +1798,171 @@ func TestParentRawTransactionRaisesTheFundingGate(t *testing.T) {
 	required, _, ok := FundingShortfall(f.get("exhausted").Msg)
 	require.True(t, ok)
 	require.Positive(t, required.Cmp(cancelCost))
+}
+
+func TestSignatureCapHoldsWhenSiblingsConsumeTheBalance(t *testing.T) {
+	t.Parallel()
+	const nonce = uint64(60)
+	latestPrice := int64(133)
+	cancelCost := new(big.Int).Mul(big.NewInt(int64(params.TxGas)), big.NewInt(latestPrice))
+	f, cl, _, _ := newExhaustedLane(t, exhaustedBuild{
+		nonce:     nonce,
+		suggested: 500,
+		baseFee:   50,
+		balance:   cancelCost,
+		age:       time.Hour,
+	})
+	var latestCancel *types.Transaction
+	for i, price := range []int64{110, 121, latestPrice} {
+		signed, err := f.auth.Signer(f.auth.From, types.NewTx(&types.LegacyTx{
+			Nonce:    nonce,
+			To:       &f.auth.From,
+			Gas:      params.TxGas,
+			GasPrice: big.NewInt(price),
+			Value:    big.NewInt(0),
+		}))
+		require.NoError(t, err)
+		latestCancel = signed
+		f.seedAttempt("exhausted", signed, time.Now().Add(-time.Duration(3-i)*time.Minute))
+	}
+	row := f.get("exhausted")
+	row.Tx = latestCancel
+	row.BroadcastPending = false
+	row.Msg = ""
+	require.NoError(t, f.db.Insert(*row))
+	now := time.Now()
+	followerNonce := nonce + 1
+	sibling, err := f.auth.Signer(f.auth.From, types.NewTx(&types.LegacyTx{
+		Nonce:    followerNonce,
+		To:       ptr(common.HexToAddress("0x00000000000000000000000000000000000000bb")),
+		Gas:      500_000,
+		GasPrice: big.NewInt(100),
+		Value:    big.NewInt(0),
+		Data:     []byte{0x11},
+	}))
+	require.NoError(t, err)
+	require.NoError(t, f.db.Insert(txmngr_provider.Transaction{
+		ID:            "sibling",
+		ChainID:       uint64(chainId),
+		Sender:        f.auth.From,
+		Address:       common.HexToAddress("0x00000000000000000000000000000000000000bb"),
+		Data:          []byte{0x11},
+		Value:         big.NewInt(0),
+		GasLimit:      500_000,
+		Status:        txmngr_provider.ConfirmingTxStatus,
+		AssignedNonce: &followerNonce,
+		NextActionAt:  now.Add(time.Hour),
+		CreatedAt:     now,
+		UpdatedAt:     now,
+	}))
+	f.seedAttempt("sibling", sibling, now)
+	calls := countSigner(f.auth)
+
+	require.NoError(t, f.step("exhausted"))
+	require.Zero(t, *calls)
+	cl.AssertNotCalled(t, "SendTransaction", mock2.Anything, mock2.Anything)
+	stored := f.get("exhausted")
+	require.False(t, stored.BroadcastPending)
+	require.NotEqual(t, txmngr_provider.ErroredTxStatus, stored.Status)
+	require.NotContains(t, stored.Msg, CancellationReasonSignatureCap)
+	required, available, ok := FundingShortfall(stored.Msg)
+	require.True(t, ok)
+	require.Equal(t, 0, available.Cmp(cancelCost))
+	siblingCost := new(big.Int).Mul(big.NewInt(500_000), big.NewInt(100))
+	require.Equal(t, 0, required.Cmp(new(big.Int).Add(new(big.Int).Set(cancelCost), siblingCost)))
+	require.NotNil(t, stored.AssignedNonce)
+	require.Equal(t, nonce, *stored.AssignedNonce)
+}
+
+func TestFeeLimitInsufficientFundsRechecksBeforeResend(t *testing.T) {
+	t.Parallel()
+	const nonce = uint64(61)
+	f, cl, _, _ := newExhaustedLane(t, exhaustedBuild{
+		nonce:     nonce,
+		suggested: 100,
+		baseFee:   50,
+		balance:   big.NewInt(0),
+		age:       time.Hour,
+	})
+	cancel, err := f.auth.Signer(f.auth.From, types.NewTx(&types.LegacyTx{
+		Nonce:    nonce,
+		To:       &f.auth.From,
+		Gas:      params.TxGas,
+		GasPrice: big.NewInt(110),
+		Value:    big.NewInt(0),
+	}))
+	require.NoError(t, err)
+	f.seedAttempt("exhausted", cancel, time.Now().Add(-time.Minute))
+	row := f.get("exhausted")
+	row.Tx = cancel
+	row.BroadcastPending = true
+	row.Msg = CancellationReasonFeeLimit
+	require.NoError(t, f.db.Insert(*row))
+	cl.On("SendTransaction", mock2.Anything, cancel).
+		Return(testRPCError{code: -38014, message: "insufficient funds for gas * price + value"}).Once()
+
+	require.NoError(t, f.step("exhausted"))
+	rejected := f.get("exhausted")
+	require.Contains(t, rejected.Msg, "insufficient funds")
+	require.NotEqual(t, CancellationReasonFeeLimit, rejected.Msg)
+	require.True(t, rejected.BroadcastPending)
+	require.NotNil(t, rejected.AssignedNonce)
+
+	require.NoError(t, f.step("exhausted"))
+	held := f.get("exhausted")
+	_, _, ok := FundingShortfall(held.Msg)
+	require.True(t, ok)
+	require.False(t, held.BroadcastPending)
+	require.NotEqual(t, txmngr_provider.ErroredTxStatus, held.Status)
+	require.Equal(t, nonce, *held.AssignedNonce)
+	cl.AssertNumberOfCalls(t, "SendTransaction", 1)
+}
+
+func TestPermanentCancelRejectionPublishesConsumed(t *testing.T) {
+	t.Parallel()
+	const nonce = uint64(62)
+	f, cl, _, _ := newExhaustedLane(t, exhaustedBuild{
+		nonce:     nonce,
+		suggested: 100,
+		baseFee:   50,
+		balance:   big.NewInt(1 << 60),
+		age:       3 * recoveredAttemptRejectionGrace,
+	})
+	cancel, err := f.auth.Signer(f.auth.From, types.NewTx(&types.LegacyTx{
+		Nonce:    nonce,
+		To:       &f.auth.From,
+		Gas:      params.TxGas,
+		GasPrice: big.NewInt(110),
+		Value:    big.NewInt(0),
+	}))
+	require.NoError(t, err)
+	f.seedAttempt("exhausted", cancel, time.Now().Add(-2*recoveredAttemptRejectionGrace-time.Second))
+	row := f.get("exhausted")
+	row.Tx = cancel
+	row.BroadcastPending = true
+	row.Msg = ""
+	require.NoError(t, f.db.Insert(*row))
+	var consumed *LaneRecoveryEvent
+	f.mngr.laneRecovery = func(event LaneRecoveryEvent) {
+		if event.Status != LaneRecoveryConsumed {
+			return
+		}
+		copied := event
+		consumed = &copied
+	}
+	cl.On("SendTransaction", mock2.Anything, cancel).
+		Return(testRPCError{code: -32000, message: "gas limit too high"}).Once()
+	cl.On("TransactionByHash", mock2.Anything, mock2.Anything).
+		Return(nil, false, ethereum.NotFound).Maybe()
+	cl.On("PendingNonceAt", mock2.Anything, f.auth.From).Return(nonce, nil).Once()
+
+	err = f.step("exhausted")
+	require.ErrorIs(t, err, errLaneStateChanged)
+	abandoned := f.get("exhausted")
+	require.Equal(t, txmngr_provider.ErroredTxStatus, abandoned.Status)
+	require.Nil(t, abandoned.AssignedNonce)
+	require.NotNil(t, consumed)
+	require.NotNil(t, consumed.Nonce)
+	require.Equal(t, nonce, *consumed.Nonce)
+	require.Equal(t, LaneRecoveryConsumed, consumed.Status)
 }
