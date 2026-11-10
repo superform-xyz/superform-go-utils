@@ -156,6 +156,7 @@ type SpotMeta struct {
 }
 
 type SpotAssetCtx struct {
+	Coin      string  `json:"coin"` // spot market name, e.g. "@107"
 	DayNtlVlm string  `json:"dayNtlVlm"`
 	MarkPx    *string `json:"markPx"`
 	MidPx     *string `json:"midPx"`
