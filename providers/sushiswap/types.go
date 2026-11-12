@@ -9,6 +9,8 @@ import (
 	"strings"
 
 	"github.com/ethereum/go-ethereum/common"
+
+	"github.com/superform-xyz/superform-go-utils/utils/units"
 )
 
 type RouteStatus string
@@ -102,6 +104,52 @@ type transactionJSON struct {
 	Gas      string         `json:"gas"`
 }
 
+func (r *apiResponse) quote(req QuoteRequest) (*Quote, error) {
+	switch r.Status {
+	case StatusNoWay:
+		return nil, ErrNoRoute
+	case StatusPartial:
+		return nil, ErrPartialRoute
+	case StatusSuccess:
+	default:
+		return nil, fmt.Errorf("sushiswap: unexpected route status %q", r.Status)
+	}
+	amountIn, err := parseAmount("amountIn", r.AmountIn)
+	if err != nil {
+		return nil, err
+	}
+	if amountIn.Sign() == 0 || amountIn.Cmp(req.Amount) != 0 {
+		return nil, fmt.Errorf("sushiswap: amountIn does not match requested amount")
+	}
+	amountOut, err := parseAmount("assumedAmountOut", r.AssumedAmountOut)
+	if err != nil {
+		return nil, err
+	}
+	if amountOut.Sign() == 0 {
+		return nil, fmt.Errorf("sushiswap: assumedAmountOut must be positive")
+	}
+	if r.TokenFrom == nil || r.TokenTo == nil || *r.TokenFrom < 0 || *r.TokenTo < 0 ||
+		*r.TokenFrom >= len(r.Tokens) || *r.TokenTo >= len(r.Tokens) {
+		return nil, fmt.Errorf("sushiswap: invalid token indexes in response")
+	}
+	if r.Tokens[*r.TokenFrom].Address != tokenAddress(req.TokenIn) ||
+		r.Tokens[*r.TokenTo].Address != tokenAddress(req.TokenOut) {
+		return nil, fmt.Errorf("sushiswap: response tokens do not match request")
+	}
+	return &Quote{
+		Status:                r.Status,
+		Tokens:                r.Tokens,
+		TokenFrom:             *r.TokenFrom,
+		TokenTo:               *r.TokenTo,
+		SwapPrice:             r.SwapPrice,
+		PriceImpact:           r.PriceImpact,
+		GasSpent:              r.GasSpent,
+		AmountIn:              amountIn,
+		AssumedAmountOut:      amountOut,
+		EstimatedAmountOutMin: units.ApplySlippageBps(amountOut, req.SlippageBps),
+	}, nil
+}
+
 func (t *transactionJSON) transaction() (*Transaction, error) {
 	if t == nil {
 		return nil, fmt.Errorf("sushiswap: swap response missing transaction")
@@ -130,5 +178,23 @@ func (t *transactionJSON) transaction() (*Transaction, error) {
 			return nil, fmt.Errorf("sushiswap: invalid tx.gas: %w", err)
 		}
 	}
-	return &Transaction{From: t.From, To: t.To, Data: data, Value: value, GasPrice: t.GasPrice, Gas: gas}, nil
+	return &Transaction{
+		From:     t.From,
+		To:       t.To,
+		Data:     data,
+		Value:    value,
+		GasPrice: t.GasPrice,
+		Gas:      gas,
+	}, nil
+}
+
+func parseAmount(field, value string) (*big.Int, error) {
+	if value == "" || strings.IndexFunc(value, func(r rune) bool { return r < '0' || r > '9' }) >= 0 {
+		return nil, fmt.Errorf("sushiswap: invalid %s %q", field, value)
+	}
+	amount, ok := new(big.Int).SetString(value, 10)
+	if !ok || amount.BitLen() > 256 {
+		return nil, fmt.Errorf("sushiswap: invalid %s %q", field, value)
+	}
+	return amount, nil
 }

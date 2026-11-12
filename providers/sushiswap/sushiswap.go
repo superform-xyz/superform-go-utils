@@ -5,7 +5,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"math/big"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -48,8 +47,9 @@ var _ Client = (*sushiswap)(nil)
 type Option func(*sushiswap)
 
 func WithBaseURL(baseURL string) Option {
+	baseURL = strings.TrimRight(strings.TrimSpace(baseURL), "/")
 	return func(s *sushiswap) {
-		if baseURL = strings.TrimRight(strings.TrimSpace(baseURL), "/"); baseURL != "" {
+		if baseURL != "" {
 			s.baseURL = baseURL
 		}
 	}
@@ -57,7 +57,8 @@ func WithBaseURL(baseURL string) Option {
 
 // WithAPIKey sets the optional apiKey query parameter supported by Sushi.
 func WithAPIKey(apiKey string) Option {
-	return func(s *sushiswap) { s.apiKey = strings.TrimSpace(apiKey) }
+	apiKey = strings.TrimSpace(apiKey)
+	return func(s *sushiswap) { s.apiKey = apiKey }
 }
 
 func WithHTTPClient(client *http.Client) Option {
@@ -104,7 +105,7 @@ func (s *sushiswap) GetQuote(ctx context.Context, req QuoteRequest) (*Quote, err
 	if err != nil {
 		return nil, err
 	}
-	response, err := getResponse(ctx, s, fmt.Sprintf("/quote/v7/%d", req.ChainID), params)
+	response, err := s.getResponse(ctx, fmt.Sprintf("/quote/v7/%d", req.ChainID), params)
 	if err != nil {
 		return nil, err
 	}
@@ -130,7 +131,7 @@ func (s *sushiswap) GetSwap(ctx context.Context, req SwapRequest) (*Swap, error)
 		params.Set("recipient", req.Recipient.Hex())
 	}
 	params.Set("simulate", strconv.FormatBool(req.Simulate))
-	response, err := getResponse(ctx, s, fmt.Sprintf("/swap/v7/%d", req.ChainID), params)
+	response, err := s.getResponse(ctx, fmt.Sprintf("/swap/v7/%d", req.ChainID), params)
 	if err != nil {
 		return nil, err
 	}
@@ -157,7 +158,8 @@ func quoteParams(req QuoteRequest) (url.Values, error) {
 	if req.ChainID == 0 {
 		return nil, fmt.Errorf("sushiswap: chain ID is required")
 	}
-	if tokenAddress(req.TokenIn) == tokenAddress(req.TokenOut) {
+	tokenIn, tokenOut := tokenAddress(req.TokenIn), tokenAddress(req.TokenOut)
+	if tokenIn == tokenOut {
 		return nil, fmt.Errorf("sushiswap: from and to tokens are the same")
 	}
 	if req.Amount == nil || req.Amount.Sign() <= 0 || req.Amount.BitLen() > 256 {
@@ -167,8 +169,8 @@ func quoteParams(req QuoteRequest) (url.Values, error) {
 		return nil, fmt.Errorf("sushiswap: slippage must be in [0, 10000) basis points")
 	}
 	params := url.Values{
-		"tokenIn":     {tokenAddress(req.TokenIn).Hex()},
-		"tokenOut":    {tokenAddress(req.TokenOut).Hex()},
+		"tokenIn":     {tokenIn.Hex()},
+		"tokenOut":    {tokenOut.Hex()},
 		"amount":      {req.Amount.String()},
 		"maxSlippage": {strconv.FormatFloat(float64(req.SlippageBps)/units.BpsBase, 'f', -1, 64)},
 	}
@@ -185,7 +187,7 @@ func tokenAddress(token common.Address) common.Address {
 	return token
 }
 
-func getResponse(ctx context.Context, s *sushiswap, path string, params url.Values) (*apiResponse, error) {
+func (s *sushiswap) getResponse(ctx context.Context, path string, params url.Values) (*apiResponse, error) {
 	if s.apiKey != "" {
 		params.Set("apiKey", s.apiKey)
 	}
@@ -199,55 +201,4 @@ func getResponse(ctx context.Context, s *sushiswap, path string, params url.Valu
 		return nil, fmt.Errorf("sushiswap %s: %w", path, err)
 	}
 	return &response, nil
-}
-
-func (r *apiResponse) quote(req QuoteRequest) (*Quote, error) {
-	switch r.Status {
-	case StatusNoWay:
-		return nil, ErrNoRoute
-	case StatusPartial:
-		return nil, ErrPartialRoute
-	case StatusSuccess:
-	default:
-		return nil, fmt.Errorf("sushiswap: unexpected route status %q", r.Status)
-	}
-	amountIn, err := parseAmount("amountIn", r.AmountIn)
-	if err != nil {
-		return nil, err
-	}
-	if amountIn.Sign() == 0 || amountIn.Cmp(req.Amount) != 0 {
-		return nil, fmt.Errorf("sushiswap: amountIn does not match requested amount")
-	}
-	amountOut, err := parseAmount("assumedAmountOut", r.AssumedAmountOut)
-	if err != nil {
-		return nil, err
-	}
-	if amountOut.Sign() == 0 {
-		return nil, fmt.Errorf("sushiswap: assumedAmountOut must be positive")
-	}
-	if r.TokenFrom == nil || r.TokenTo == nil || *r.TokenFrom < 0 || *r.TokenTo < 0 ||
-		*r.TokenFrom >= len(r.Tokens) || *r.TokenTo >= len(r.Tokens) {
-		return nil, fmt.Errorf("sushiswap: invalid token indexes in response")
-	}
-	if r.Tokens[*r.TokenFrom].Address != tokenAddress(req.TokenIn) ||
-		r.Tokens[*r.TokenTo].Address != tokenAddress(req.TokenOut) {
-		return nil, fmt.Errorf("sushiswap: response tokens do not match request")
-	}
-	return &Quote{
-		Status: r.Status, Tokens: r.Tokens, TokenFrom: *r.TokenFrom, TokenTo: *r.TokenTo,
-		SwapPrice: r.SwapPrice, PriceImpact: r.PriceImpact, GasSpent: r.GasSpent,
-		AmountIn: amountIn, AssumedAmountOut: amountOut,
-		EstimatedAmountOutMin: units.ApplySlippageBps(amountOut, req.SlippageBps),
-	}, nil
-}
-
-func parseAmount(field, value string) (*big.Int, error) {
-	if value == "" || strings.IndexFunc(value, func(r rune) bool { return r < '0' || r > '9' }) >= 0 {
-		return nil, fmt.Errorf("sushiswap: invalid %s %q", field, value)
-	}
-	amount, ok := new(big.Int).SetString(value, 10)
-	if !ok || amount.BitLen() > 256 {
-		return nil, fmt.Errorf("sushiswap: invalid %s %q", field, value)
-	}
-	return amount, nil
 }

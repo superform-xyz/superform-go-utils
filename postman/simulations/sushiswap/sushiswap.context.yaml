@@ -66,14 +66,14 @@ assumptions:
     status: supported
     claim: The v7 contract uses fractional maxSlippage and decimal strings for base-unit input and output amounts.
     reason: The official SDK validates maxSlippage in [0, 1), and real responses use string amounts that require integer precision.
-    verification: Read the official SDK and fetched live quote and swap responses on 2026-11-12. TestSimulation sent maxSlippage=0.005 for 50 bps and parsed an output above 2^53 exactly; request logs confirmed both v7 paths were reached.
+    verification: Read the official SDK and fetched live quote and swap responses on 2026-11-12. TestSimulation sent maxSlippage=0.005 for 50 bps and parsed an output above 2^53 exactly; request logs confirmed both v7 paths were reached. Re-ran TestSimulation after the code-simplifier refactor (fingerprint sushiswap-provider-simplified); the same request values and exact output amount passed.
     source: https://github.com/sushi-labs/sushi/blob/master/src/evm/api/swap.ts; providers/sushiswap/sushiswap_test.go; providers/sushiswap/integration_test.go
     updated_at: "2026-11-12"
   - id: incomplete-route-statuses
     status: supported
     claim: The v7 response contract distinguishes Success, Partial, and NoWay routes.
     reason: These statuses are documented by Sushi. The local stand-in exercises caller handling but does not establish which real market conditions produce them.
-    verification: On 2026-11-12, TestSimulation passed success, NoWay, Partial, and 429 cases. The simulation logged five HTTP requests (four 200 responses and one 429); the provider returned ErrNoRoute, ErrPartialRoute, and ErrRateLimited for the corresponding fixtures. Live probing covered Success only.
+    verification: On 2026-11-12, TestSimulation passed success, NoWay, Partial, and 429 cases. The simulation logged five HTTP requests (four 200 responses and one 429); the provider returned ErrNoRoute, ErrPartialRoute, and ErrRateLimited for the corresponding fixtures. Repeated the same five requests after the code-simplifier refactor (fingerprint sushiswap-provider-simplified), with the same outcomes. Live probing covered Success only.
     source: https://docs.sushi.com/api/examples/swap; postman/mocks/sushiswap/default.js; providers/sushiswap/integration_test.go (TestSimulation)
     updated_at: "2026-11-12"
   - id: minimum-output-source
@@ -81,7 +81,7 @@ assumptions:
     claim: The documented v7 responses provide assumedAmountOut without a separate minimum-output field.
     reason: The response documentation and observed live JSON agree. EstimatedAmountOutMin is a local calculation rather than a decoded provider field.
     verification: Inspected official response fields and live quote/swap JSON on 2026-11-12. Local tests verified integer rounding for the estimated minimum. No transaction was broadcast and no on-chain minimum was independently decoded.
-    source: https://docs.sushi.com/api/examples/swap; providers/sushiswap/types.go (Quote); providers/sushiswap/sushiswap.go (apiResponse.quote)
+    source: https://docs.sushi.com/api/examples/swap; providers/sushiswap/types.go (Quote and apiResponse.quote)
     updated_at: "2026-11-12"
   - id: mock-provenance
     status: unknown
@@ -100,4 +100,8 @@ fingerprints:
   - id: sushiswap-provider-initial
     date: "2026-11-12"
     commit: "1bc6294 with uncommitted SushiSwap provider and simulation additions"
+    cli: "1.86.0"
+  - id: sushiswap-provider-simplified
+    date: "2026-11-12"
+    commit: "08c20ad with uncommitted code-simplifier changes and a parallel option reuse regression test"
     cli: "1.86.0"

@@ -1,14 +1,14 @@
 package sushiswap
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"math/big"
 	"net/http"
 	"net/http/httptest"
 	"os"
-	"strings"
+	"strconv"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -50,7 +50,7 @@ func successBody(t *testing.T) map[string]any {
 	body, err := os.ReadFile("testdata/success.json")
 	require.NoError(t, err)
 	var response map[string]any
-	decoder := json.NewDecoder(strings.NewReader(string(body)))
+	decoder := json.NewDecoder(bytes.NewReader(body))
 	decoder.UseNumber()
 	require.NoError(t, decoder.Decode(&response))
 	return response
@@ -62,15 +62,39 @@ func writeJSON(t *testing.T, w http.ResponseWriter, response any) {
 	assert.NoError(t, json.NewEncoder(w).Encode(response))
 }
 
+func TestOptionsCanBeReusedConcurrently(t *testing.T) {
+	body := successBody(t)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, "/quote/v7/1", r.URL.Path)
+		assert.Equal(t, "test-key", r.URL.Query().Get("apiKey"))
+		writeJSON(t, w, body)
+	}))
+	t.Cleanup(server.Close)
+	opts := []Option{WithBaseURL("  " + server.URL + "///  "), WithAPIKey("  test-key  ")}
+	for i := range 8 {
+		t.Run(strconv.Itoa(i), func(t *testing.T) {
+			t.Parallel()
+			client, err := New(opts...)
+			require.NoError(t, err)
+			t.Cleanup(func() { require.NoError(t, client.Close()) })
+			quote, err := client.GetQuote(context.Background(), quoteRequest())
+			require.NoError(t, err)
+			assert.Equal(t, "11951002273851281408", quote.AssumedAmountOut.String())
+		})
+	}
+}
+
 func TestGetQuote(t *testing.T) {
-	for _, authenticated := range []bool{false, true} {
-		t.Run(map[bool]string{false: "public", true: "api key"}[authenticated], func(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		apiKey string
+	}{
+		{name: "public"},
+		{name: "api key", apiKey: "test-key &+?"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
 			body := successBody(t)
 			delete(body, "tx") // quote responses do not contain a transaction
-			apiKey := ""
-			if authenticated {
-				apiKey = "test-key &+?"
-			}
 			client := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
 				assert.Equal(t, http.MethodGet, r.Method)
 				assert.Equal(t, "/quote/v7/1", r.URL.Path)
@@ -81,10 +105,10 @@ func TestGetQuote(t *testing.T) {
 				assert.Equal(t, "1000000000000000", params.Get("amount"))
 				assert.Equal(t, "0.005", params.Get("maxSlippage"))
 				assert.Equal(t, "superform & utils", params.Get("referrer"))
-				assert.Equal(t, apiKey, params.Get("apiKey"))
-				assert.Equal(t, authenticated, params.Has("apiKey"))
+				assert.Equal(t, tc.apiKey, params.Get("apiKey"))
+				assert.Equal(t, tc.apiKey != "", params.Has("apiKey"))
 				writeJSON(t, w, body)
-			}, WithAPIKey("  "+apiKey+"  "))
+			}, WithAPIKey("  "+tc.apiKey+"  "))
 			req := quoteRequest()
 			req.Referrer = "superform & utils"
 			quote, err := client.GetQuote(context.Background(), req)
@@ -101,10 +125,18 @@ func TestGetQuote(t *testing.T) {
 }
 
 func TestGetSwap(t *testing.T) {
-	for _, simulate := range []bool{false, true} {
-		t.Run(map[bool]string{false: "without simulation", true: "with simulation"}[simulate], func(t *testing.T) {
+	for _, tc := range []struct {
+		name         string
+		simulate     bool
+		wantSimulate string
+		wantGas      uint64
+	}{
+		{name: "without simulation", wantSimulate: "false"},
+		{name: "with simulation", simulate: true, wantSimulate: "true", wantGas: 123456},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
 			body := successBody(t)
-			if simulate {
+			if tc.simulate {
 				body["tx"].(map[string]any)["gas"] = "123456"
 			}
 			recipient := common.HexToAddress("0x2222222222222222222222222222222222222222")
@@ -112,12 +144,12 @@ func TestGetSwap(t *testing.T) {
 				assert.Equal(t, "/swap/v7/1", r.URL.Path)
 				assert.Equal(t, testSender.Hex(), r.URL.Query().Get("sender"))
 				assert.Equal(t, recipient.Hex(), r.URL.Query().Get("recipient"))
-				assert.Equal(t, map[bool]string{false: "false", true: "true"}[simulate], r.URL.Query().Get("simulate"))
+				assert.Equal(t, tc.wantSimulate, r.URL.Query().Get("simulate"))
 				assert.Equal(t, "test-key", r.URL.Query().Get("apiKey"))
 				writeJSON(t, w, body)
 			}, WithAPIKey("test-key"))
 			req := swapRequest()
-			req.Recipient, req.Simulate = recipient, simulate
+			req.Recipient, req.Simulate = recipient, tc.simulate
 			swap, err := client.GetSwap(context.Background(), req)
 			require.NoError(t, err)
 			assert.Equal(t, testSender, swap.Tx.From)
@@ -126,11 +158,7 @@ func TestGetSwap(t *testing.T) {
 			assert.Equal(t, "1000000000000000", swap.Tx.Value.String())
 			assert.Equal(t, "47396891", swap.Tx.GasPrice.String())
 			assert.Equal(t, "11891247262482025000", swap.EstimatedAmountOutMin.String())
-			if simulate {
-				assert.Equal(t, uint64(123456), swap.Tx.Gas)
-			} else {
-				assert.Zero(t, swap.Tx.Gas)
-			}
+			assert.Equal(t, tc.wantGas, swap.Tx.Gas)
 		})
 	}
 }
@@ -190,14 +218,21 @@ func TestInvalidRequests(t *testing.T) {
 }
 
 func TestSlippageBoundariesAndNativeAliases(t *testing.T) {
-	for _, bps := range []int{0, 1, 9999} {
-		t.Run(big.NewInt(int64(bps)).String(), func(t *testing.T) {
+	for _, tc := range []struct {
+		bps          int
+		wantSlippage string
+	}{
+		{bps: 0, wantSlippage: "0"},
+		{bps: 1, wantSlippage: "0.0001"},
+		{bps: 9999, wantSlippage: "0.9999"},
+	} {
+		t.Run(strconv.Itoa(tc.bps), func(t *testing.T) {
 			req := quoteRequest()
 			req.TokenIn = constants.GetNativeToken()
-			req.SlippageBps = bps
+			req.SlippageBps = tc.bps
 			params, err := quoteParams(req)
 			require.NoError(t, err)
-			assert.Equal(t, map[int]string{0: "0", 1: "0.0001", 9999: "0.9999"}[bps], params.Get("maxSlippage"))
+			assert.Equal(t, tc.wantSlippage, params.Get("maxSlippage"))
 			assert.Equal(t, constants.GetNativeToken().Hex(), params.Get("tokenIn"))
 		})
 	}
@@ -266,12 +301,18 @@ func TestMalformedResponses(t *testing.T) {
 }
 
 func TestHTTPFailures(t *testing.T) {
-	for _, customClient := range []bool{false, true} {
+	for _, transport := range []struct {
+		name         string
+		customClient bool
+	}{
+		{name: "default"},
+		{name: "custom", customClient: true},
+	} {
 		for _, status := range []int{401, 422, 429, 500, 503} {
-			t.Run(big.NewInt(int64(status)).String()+map[bool]string{false: "/default", true: "/custom"}[customClient], func(t *testing.T) {
+			t.Run(strconv.Itoa(status)+"/"+transport.name, func(t *testing.T) {
 				var requests atomic.Int32
 				var opts []Option
-				if customClient {
+				if transport.customClient {
 					opts = append(opts, WithHTTPClient(&http.Client{Timeout: time.Second}))
 				}
 				client := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
@@ -330,5 +371,5 @@ func TestTimeoutAndRetry(t *testing.T) {
 
 	client = newTestClient(t, func(w http.ResponseWriter, r *http.Request) { <-r.Context().Done() }, WithTimeout(20*time.Millisecond))
 	_, err = client.GetQuote(context.Background(), quoteRequest())
-	require.True(t, errors.Is(err, context.DeadlineExceeded), "%v", err)
+	require.ErrorIs(t, err, context.DeadlineExceeded)
 }
