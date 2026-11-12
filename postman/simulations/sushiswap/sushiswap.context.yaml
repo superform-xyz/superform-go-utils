@@ -1,0 +1,103 @@
+# Simulation context — sushiswap
+#
+# Generated 2026-11-12.
+#
+# What is believed to be true about the services this simulation stands in for,
+# and what each belief rests on. A `null` is something nobody has established
+# yet.
+#
+# Written from a fixed template and never recreated. How to read it, and how to
+# write a run back into it, is in the api-simulation skill
+# (skills/api-simulation/reference/context_file.md).
+
+simulation: "sushiswap"
+generated: "2026-11-12"
+
+# What this simulation stands in for and what work it unblocks. Both need
+# hindsight, so they are the last thing to write. The members it serves, their
+# route keys and the hosts they answer for are in the .sim.yaml beside this file.
+purpose:
+  stands_in_for: Sushi's v7 quote and unsigned swap transaction HTTP endpoints.
+  unblocks: Repeatable integration checks of the Go provider without credentials or chain writes.
+
+# What the code relies on about a dependency's behaviour — one claim per entry,
+# each { id, status, claim, reason, verification, source, updated_at }.
+#
+#   status        supported     evidence supports it, within a stated scope
+#                 contradicted  evidence gives a counterexample
+#                 unknown       available evidence cannot establish or reject it
+#                 conflicting   applicable sources disagree
+#
+#   reason        why the evidence adds up to that status
+#   verification  what was checked and what it showed — a contract read, a
+#                 request made and its response, a handler inspected. Name what
+#                 is still planned or blocked, and what has gone stale and why.
+#   source        where to go to re-check it: a file and line range, a run, a
+#                 published contract. A claim with nothing to point at is
+#                 `unknown`.
+#   updated_at    the day this entry was last written, YYYY-MM-DD. Set it when
+#                 you add a claim and again whenever you change one, so a claim
+#                 nobody has touched in months is visible as such.
+#
+# A claim is about the dependency, not about the simulation — what the caller
+# is taken to be, which plan or permission is assumed, the order calls go in,
+# what gets retried, the shape of the data.
+#
+#   - id: charges-idempotent-for-24h
+#     status: supported
+#     claim: Payments treats a repeated Idempotency-Key as the same charge for
+#       24 hours. Beyond that it is a new charge.
+#     reason: The contract guarantees it for that window, and a run inside the
+#       window agreed. The 24-hour boundary itself is untested.
+#     verification: Read the provider's API reference for POST /charges, then
+#       sent the same key twice 10 minutes apart and got the first charge id
+#       back both times.
+#     source: the provider's API reference for POST /charges; runs/idempotency-001
+#     updated_at: "2026-11-12"
+assumptions:
+  - id: optional-api-key
+    status: supported
+    claim: The public v7 quote and swap endpoints accept the tested ETH-to-SUSHI requests without an API key.
+    reason: Official documentation lists the key as optional, and the real Go client completed both requests unauthenticated.
+    verification: On 2026-11-12, SUSHISWAP_LIVE=1 go test ./providers/sushiswap -run '^TestLive$' -count=1 -v passed against api.sushi.com on Ethereum. Other pairs, chains, authenticated plans, and rate limits were not measured.
+    source: https://docs.sushi.com/sdk/guides/swap; providers/sushiswap/integration_test.go (TestLive)
+    updated_at: "2026-11-12"
+  - id: fractional-slippage-and-string-amounts
+    status: supported
+    claim: The v7 contract uses fractional maxSlippage and decimal strings for base-unit input and output amounts.
+    reason: The official SDK validates maxSlippage in [0, 1), and real responses use string amounts that require integer precision.
+    verification: Read the official SDK and fetched live quote and swap responses on 2026-11-12. TestSimulation sent maxSlippage=0.005 for 50 bps and parsed an output above 2^53 exactly; request logs confirmed both v7 paths were reached.
+    source: https://github.com/sushi-labs/sushi/blob/master/src/evm/api/swap.ts; providers/sushiswap/sushiswap_test.go; providers/sushiswap/integration_test.go
+    updated_at: "2026-11-12"
+  - id: incomplete-route-statuses
+    status: supported
+    claim: The v7 response contract distinguishes Success, Partial, and NoWay routes.
+    reason: These statuses are documented by Sushi. The local stand-in exercises caller handling but does not establish which real market conditions produce them.
+    verification: On 2026-11-12, TestSimulation passed success, NoWay, Partial, and 429 cases. The simulation logged five HTTP requests (four 200 responses and one 429); the provider returned ErrNoRoute, ErrPartialRoute, and ErrRateLimited for the corresponding fixtures. Live probing covered Success only.
+    source: https://docs.sushi.com/api/examples/swap; postman/mocks/sushiswap/default.js; providers/sushiswap/integration_test.go (TestSimulation)
+    updated_at: "2026-11-12"
+  - id: minimum-output-source
+    status: supported
+    claim: The documented v7 responses provide assumedAmountOut without a separate minimum-output field.
+    reason: The response documentation and observed live JSON agree. EstimatedAmountOutMin is a local calculation rather than a decoded provider field.
+    verification: Inspected official response fields and live quote/swap JSON on 2026-11-12. Local tests verified integer rounding for the estimated minimum. No transaction was broadcast and no on-chain minimum was independently decoded.
+    source: https://docs.sushi.com/api/examples/swap; providers/sushiswap/types.go (Quote); providers/sushiswap/sushiswap.go (apiResponse.quote)
+    updated_at: "2026-11-12"
+  - id: mock-provenance
+    status: unknown
+    claim: The local stand-in covers behavior beyond the documented and exercised v7 response shapes.
+    reason: This is a narrow contract-based mock. Postman owner search was skipped because the CLI is signed out. Orbit search returned unrelated or legacy resources, so implementation used Sushi's official documentation and SDK source.
+    verification: The modeled success and failure fixtures ran through the real Go provider on 2026-11-12. Fixture referrer values are local test controls, and abbreviated calldata is not executable. Wider production behavior remains outside this model.
+    source: postman/mocks/sushiswap/default.js; https://docs.sushi.com/api/examples/swap; https://docs.sushi.com/api/errors
+    updated_at: "2026-11-12"
+
+# What the claims above were written against: { id, date, commit, cli }, from
+# `git rev-parse HEAD` and `postman --version`. Append an entry when either
+# differs, and say so when the tree is dirty — a sha alone reads as a clean
+# checkout. A claim carried over from an older fingerprint is one nothing has
+# re-checked since.
+fingerprints:
+  - id: sushiswap-provider-initial
+    date: "2026-11-12"
+    commit: "1bc6294 with uncommitted SushiSwap provider and simulation additions"
+    cli: "1.86.0"
