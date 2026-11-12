@@ -1,0 +1,16 @@
+# Simulation scaffold. Add fault-injection scenarios under each mock, e.g.:
+#   scenarios:
+#     - overrides:
+#         conditions:
+#           latency: { delay_ms: 500 }
+# Then serve it with: postman simulation run <this file>
+
+simulation: sushiswap
+routing: path
+mocks:
+  - name: sushiswap
+    routeKey: sushiswap
+    origin:
+      - api.sushi.com
+    interceptRequests: true
+    path: postman/mocks/sushiswap

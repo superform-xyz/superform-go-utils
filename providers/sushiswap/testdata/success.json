@@ -1,0 +1,21 @@
+{
+  "status": "Success",
+  "tokens": [
+    {"address": "0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee", "decimals": 18, "symbol": "ETH", "name": "Ether"},
+    {"address": "0x6b3595068778dd592e39a122f4f5a5cf09c90fe2", "decimals": 18, "symbol": "SUSHI", "name": "SushiToken"}
+  ],
+  "tokenFrom": 0,
+  "tokenTo": 1,
+  "swapPrice": 11951.002273851282,
+  "priceImpact": 0.003650867404904279,
+  "amountIn": "1000000000000000",
+  "assumedAmountOut": "11951002273851281408",
+  "gasSpent": 77000,
+  "tx": {
+    "from": "0x1111111111111111111111111111111111111111",
+    "to": "0xac4c6e212a361c968f1725b4d055b47e63f80b75",
+    "gasPrice": 47396891,
+    "data": "0x5f3bd1c800000000",
+    "value": "1000000000000000"
+  }
+}
