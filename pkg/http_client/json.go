@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 )
 
@@ -52,7 +51,7 @@ func DoJSON[T any](c Doer, req *http.Request) (T, error) {
 	return DecodeJSON[T](resp)
 }
 
-// DecodeJSON decodes a JSON response body into T and closes it.
+// DecodeJSON decodes one JSON value into T and closes the body without draining it.
 func DecodeJSON[T any](resp *http.Response) (T, error) {
 	var out T
 	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
@@ -63,7 +62,5 @@ func DecodeJSON[T any](resp *http.Response) (T, error) {
 	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
 		return out, fmt.Errorf("decoding JSON response: %w", err)
 	}
-	// Drain trailing whitespace so the connection can be reused.
-	_, _ = io.Copy(io.Discard, resp.Body)
 	return out, nil
 }
