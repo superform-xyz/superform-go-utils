@@ -71,6 +71,11 @@ packages:
       dir: "providers/snapshotd/mocks"
     interfaces:
       Client:
+  github.com/superform-xyz/superform-go-utils/providers/everlong:
+    config:
+      dir: "providers/everlong/mocks"
+    interfaces:
+      Client:
   github.com/superform-xyz/superform-go-utils/providers/sushiswap:
     config:
       dir: "providers/sushiswap/mocks"
