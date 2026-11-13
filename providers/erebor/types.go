@@ -24,18 +24,20 @@ type Allocations struct {
 }
 
 type Allocation struct {
-	Name               string `json:"name"`
-	Address            string `json:"address"`
-	Oracle             string `json:"oracle"`
-	Assets             string `json:"assets"`
-	PositionType       string `json:"position_type"`
-	Kind               uint8  `json:"kind,omitempty"`
-	MarketKey          string `json:"market_key,omitempty"`
-	MarketID           string `json:"market_id,omitempty"`
-	ProtocolAddress    string `json:"protocol_address,omitempty"`
-	PositionSide       string `json:"position_side,omitempty"`
-	UnderlyingAsset    string `json:"underlying_asset,omitempty"`
-	UnderlyingDecimals *uint8 `json:"underlying_decimals,omitempty"`
-	UnderlyingTVL      string `json:"underlying_tvl,omitempty"`
-	RawShares          string `json:"raw_shares,omitempty"`
+	Name               string  `json:"name"`
+	AssetSymbol        *string `json:"asset_symbol,omitempty"`
+	ProviderName       *string `json:"provider_name,omitempty"`
+	Address            string  `json:"address"`
+	Oracle             string  `json:"oracle"`
+	Assets             string  `json:"assets"`
+	PositionType       string  `json:"position_type"`
+	Kind               uint8   `json:"kind,omitempty"`
+	MarketKey          string  `json:"market_key,omitempty"`
+	MarketID           string  `json:"market_id,omitempty"`
+	ProtocolAddress    string  `json:"protocol_address,omitempty"`
+	PositionSide       string  `json:"position_side,omitempty"`
+	UnderlyingAsset    string  `json:"underlying_asset,omitempty"`
+	UnderlyingDecimals *uint8  `json:"underlying_decimals,omitempty"`
+	UnderlyingTVL      string  `json:"underlying_tvl,omitempty"`
+	RawShares          string  `json:"raw_shares,omitempty"`
 }

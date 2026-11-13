@@ -22,7 +22,7 @@ func testAllocations() map[string]any {
 		"chain_id": 747474, "vault_address": testVault, "strategy_address": testStrategy,
 		"asset_address": testAsset, "asset_symbol": "USDC", "asset_decimals": 0,
 		"net_assets": "900719925474099312345", "idle_balance": "200",
-		"allocations": []any{map[string]any{"name": "Morpho Gauntlet", "address": testSource, "assets": "-900719925474099312345", "position_type": "liability"}},
+		"allocations": []any{map[string]any{"name": "Morpho Gauntlet", "asset_symbol": "shareUSDC", "provider_name": "Morpho", "address": testSource, "assets": "-900719925474099312345", "position_type": "liability"}},
 	}
 }
 
@@ -45,6 +45,8 @@ func TestGetAllocationsPreservesNamedSignedAmounts(t *testing.T) {
 	require.Equal(t, "200", result.IdleBalance)
 	require.Len(t, result.Allocations, 1)
 	require.Equal(t, "Morpho Gauntlet", result.Allocations[0].Name)
+	require.Equal(t, "shareUSDC", *result.Allocations[0].AssetSymbol)
+	require.Equal(t, "Morpho", *result.Allocations[0].ProviderName)
 	require.Equal(t, "-900719925474099312345", result.Allocations[0].Assets)
 }
 
