@@ -201,4 +201,18 @@ func TestChainHelpers(t *testing.T) {
 	require.True(t, ok)
 	assert.Equal(t, constants.FlareChainID, chainID)
 	assert.Contains(t, SupportedChains(), constants.FlareChainID)
+
+	slug, ok = ChainSlug(constants.KatanaChainID)
+	require.True(t, ok)
+	assert.Equal(t, "katana", slug)
+
+	chainID, ok = ChainID(" Katana ")
+	require.True(t, ok)
+	assert.Equal(t, constants.KatanaChainID, chainID)
+	assert.Contains(t, SupportedChains(), constants.KatanaChainID)
+	assert.Equal(t, "ethereum,katana", ChainFilterFromChainIDs([]uint64{
+		constants.KatanaChainID,
+		constants.MainnetChainID,
+		constants.KatanaChainID,
+	}))
 }

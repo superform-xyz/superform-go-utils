@@ -43,4 +43,6 @@ const (
 	RobinhoodChainID = uint64(4663)
 	// ArcChainID is the chain ID for Arc, Circle's USDC-gas L1
 	ArcChainID = uint64(5042)
+	// KatanaChainID is the chain ID for Katana
+	KatanaChainID = uint64(747474)
 )

@@ -1,0 +1,10 @@
+version: 1
+name: sushiswap
+slug: sushiswap
+protocol: http
+origin: api.sushi.com
+interceptRequests: true
+scenarios:
+  - name: default
+    path: ./default.js
+    default: true

@@ -158,3 +158,57 @@ func TestReadCancellation(t *testing.T) {
 	_, err = ReadPerpSnapshot(ctx, caller, 0, common.Address{})
 	require.ErrorIs(t, err, context.Canceled)
 }
+
+func TestReadSpotBalancesUsesOneLatestExecution(t *testing.T) {
+	user := common.HexToAddress("0x1111111111111111111111111111111111111111")
+	spotCall := func(token string) string {
+		return word("801") + word("1") + word("60") + word("40") + word(strings.TrimPrefix(user.Hex(), "0x")) + word(token)
+	}
+	expectedInput := "82ad56cb" + word("20") + word("2") + word("40") + word("100") + spotCall("96") + spotCall("0")
+	calls := 0
+	caller := checkedCaller(func(_ context.Context, call ethereum.CallMsg, block *big.Int) ([]byte, error) {
+		calls++
+		require.Equal(t, common.HexToAddress("0xcA11bde05977b3631167028862bE2a173976CA11"), *call.To)
+		require.Nil(t, block)
+		require.Equal(t, mustHex(t, expectedInput), call.Data)
+		return mustHex(t, aggregateResponse(true, true, word("2a")+word("7")+word("3"), mainnetSpotBalance)), nil
+	})
+	balances, err := ReadSpotBalances(context.Background(), caller, user, 150, USDCTokenIndex)
+	require.NoError(t, err)
+	require.Equal(t, []SpotBalance{{Total: 42, Hold: 7, EntryNtl: 3}, {Total: 0x1d10f2d0}}, balances)
+	require.Equal(t, 1, calls)
+}
+
+func TestReadSpotBalancesRejectsIncompleteOrMalformedAggregateWithoutFallback(t *testing.T) {
+	read := func(caller EthCaller) error {
+		_, err := ReadSpotBalances(context.Background(), caller, common.Address{}, 150, USDCTokenIndex)
+		return err
+	}
+	for _, test := range []struct{ name, out, want string }{
+		{"first subcall", aggregateResponse(false, true, "", mainnetSpotBalance), "spotBalance(token 150) subcall failed"},
+		{"second subcall", aggregateResponse(true, false, mainnetSpotBalance, ""), "spotBalance(token 0) subcall failed"},
+		{"short balance", aggregateResponse(true, true, mainnetSpotBalance, word("1")), "spotBalance output"},
+		{"trailing balance", aggregateResponse(true, true, mainnetSpotBalance+word("0"), mainnetSpotBalance), "spotBalance output"},
+		{"trailing aggregate", aggregateResponse(true, true, mainnetSpotBalance, mainnetSpotBalance) + word("0"), "aggregate3"},
+		{"empty aggregate", "", "aggregate3"},
+		{"zero results", word("20") + word("0"), "returned 0 results, want 2"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			calls := 0
+			caller := checkedCaller(func(context.Context, ethereum.CallMsg, *big.Int) ([]byte, error) {
+				calls++
+				return mustHex(t, test.out), nil
+			})
+			require.ErrorContains(t, read(caller), test.want)
+			require.Equal(t, 1, calls, "failed reads must not trigger separate fallback reads")
+		})
+	}
+	cause := errors.New("RPC unavailable")
+	require.ErrorIs(t, read(checkedCaller(func(context.Context, ethereum.CallMsg, *big.Int) ([]byte, error) { return nil, cause })), cause)
+
+	_, err := ReadSpotBalances(context.Background(), checkedCaller(func(context.Context, ethereum.CallMsg, *big.Int) ([]byte, error) {
+		t.Fatal("an empty token list must not call the RPC")
+		return nil, nil
+	}), common.Address{})
+	require.ErrorContains(t, err, "at least one token")
+}

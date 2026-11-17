@@ -88,3 +88,12 @@ func TestBps(t *testing.T) {
 	assert.Equal(t, "1000", MulBpsCeil(big.NewInt(1000), 20000).String())
 	assert.Equal(t, "0", MulBpsCeil(big.NewInt(-5), 50).String())
 }
+
+func TestMulDivCeil(t *testing.T) {
+	amount := big.NewInt(300_001)
+	assert.Equal(t, "7", MulDivCeil(amount, big.NewInt(200_000), Pow10(10)).String(), "rounds a remainder up")
+	assert.Equal(t, "300001", amount.String(), "inputs are not mutated")
+	assert.Equal(t, "4", MulDivCeil(big.NewInt(200_000), big.NewInt(200_000), Pow10(10)).String(), "exact quotient")
+	assert.Equal(t, "2", MulDivCeil(big.NewInt(1), big.NewInt(3), big.NewInt(2)).String())
+	assert.Equal(t, "0", MulDivCeil(big.NewInt(0), big.NewInt(7), big.NewInt(3)).String())
+}

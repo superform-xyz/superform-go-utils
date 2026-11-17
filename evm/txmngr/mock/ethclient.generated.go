@@ -28,6 +28,64 @@ func (_m *EthClient) EXPECT() *EthClient_Expecter {
 	return &EthClient_Expecter{mock: &_m.Mock}
 }
 
+// BalanceAt provides a mock function with given fields: ctx, account, blockNumber
+func (_m *EthClient) BalanceAt(ctx context.Context, account common.Address, blockNumber *big.Int) (*big.Int, error) {
+	ret := _m.Called(ctx, account, blockNumber)
+
+	if len(ret) == 0 {
+		panic("no return value specified for BalanceAt")
+	}
+
+	var r0 *big.Int
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, common.Address, *big.Int) (*big.Int, error)); ok {
+		return rf(ctx, account, blockNumber)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, common.Address, *big.Int) *big.Int); ok {
+		r0 = rf(ctx, account, blockNumber)
+	} else if ret.Get(0) != nil {
+		r0 = ret.Get(0).(*big.Int)
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, common.Address, *big.Int) error); ok {
+		r1 = rf(ctx, account, blockNumber)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// EthClient_BalanceAt_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'BalanceAt'
+type EthClient_BalanceAt_Call struct {
+	*mock.Call
+}
+
+// BalanceAt is a helper method to define mock.On call
+//   - ctx context.Context
+//   - account common.Address
+//   - blockNumber *big.Int
+func (_e *EthClient_Expecter) BalanceAt(ctx interface{}, account interface{}, blockNumber interface{}) *EthClient_BalanceAt_Call {
+	return &EthClient_BalanceAt_Call{Call: _e.mock.On("BalanceAt", ctx, account, blockNumber)}
+}
+
+func (_c *EthClient_BalanceAt_Call) Run(run func(ctx context.Context, account common.Address, blockNumber *big.Int)) *EthClient_BalanceAt_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(common.Address), args[2].(*big.Int))
+	})
+	return _c
+}
+
+func (_c *EthClient_BalanceAt_Call) Return(_a0 *big.Int, _a1 error) *EthClient_BalanceAt_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *EthClient_BalanceAt_Call) RunAndReturn(run func(context.Context, common.Address, *big.Int) (*big.Int, error)) *EthClient_BalanceAt_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // CallContract provides a mock function with given fields: ctx, call, blockNumber
 func (_m *EthClient) CallContract(ctx context.Context, call ethereum.CallMsg, blockNumber *big.Int) ([]byte, error) {
 	ret := _m.Called(ctx, call, blockNumber)
