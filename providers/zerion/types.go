@@ -177,11 +177,18 @@ type PositionAttributes struct {
 	UpdatedAt      string         `json:"updated_at"`
 	UpdatedAtBlock *uint64        `json:"updated_at_block"`
 	Receipt        *Receipt       `json:"receipt"`
+	Proxy          *PositionProxy `json:"proxy"`
 
 	// HasValue and HasPrice distinguish a decoded numeric zero from a null or
 	// absent field. Value and Price retain their existing float64 API.
 	HasValue bool `json:"-"`
 	HasPrice bool `json:"-"`
+}
+
+// PositionProxy identifies the proxy holding a position attributed to its owner.
+// A non-nil proxy distinguishes indirect holdings even when its address is empty.
+type PositionProxy struct {
+	Address string `json:"address"`
 }
 
 func (a *PositionAttributes) UnmarshalJSON(data []byte) error {
