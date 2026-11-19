@@ -34,6 +34,13 @@ func TestAdditionalInfoReadsReturnFactsWithoutEligibilityPolicy(t *testing.T) {
 			response = `{"nRequestsCap":10,"nRequestsUsed":12,"cumVlm":9007199254740993.000000001}`
 		case "extraAgents":
 			response = `[{"address":"malformed-provider-address","name":"unknown","validUntil":-1},{"address":"0xABCDEF0000000000000000000000000000000123","name":"active","validUntil":100}]`
+		case "userAbstraction":
+			response = `"futureAccountMode"`
+		case "spotClearinghouseState":
+			response = `{"balances":[{"token":0,"total":"1","hold":"0"},{"coin":"+1230"}],"tokenToAvailableAfterMaintenance":[[0,"1.000000001"]]}`
+		case "preTransferCheck":
+			require.Equal(t, `"0x000000000000000000000000000000000000beef"`, string(request["source"]))
+			response = `{"isSanctioned":true,"fee":null}`
 		case "orderStatus":
 			require.Equal(t, `"0xclient-id"`, string(request["oid"]))
 			response = `{"status":"order","order":{"status":"futureVenueStatus","order":{"oid":18446744073709551615,"cloid":"0xclient-id","futureField":true}}}`
@@ -69,7 +76,22 @@ func TestAdditionalInfoReadsReturnFactsWithoutEligibilityPolicy(t *testing.T) {
 	marshaled, err := json.Marshal(status)
 	require.NoError(t, err)
 	require.NotContains(t, string(marshaled), "futureField", "retained raw provider prose is not included in typed evidence by default")
-	require.Equal(t, int32(4), calls.Load())
+	mode, err := client.UserAbstraction(context.Background(), user)
+	require.NoError(t, err)
+	require.Equal(t, "futureAccountMode", mode)
+	check, err := client.PreTransferCheck(context.Background(), common.HexToAddress("0xbeef"), user)
+	require.NoError(t, err)
+	require.True(t, check.IsSanctioned)
+	require.Nil(t, check.Fee)
+	state, err := client.SpotClearinghouseStateWithMaintenance(context.Background(), user)
+	require.NoError(t, err)
+	require.Len(t, state.Balances, 2)
+	require.Equal(t, uint64(0), *state.Balances[0].Token)
+	require.Nil(t, state.Balances[1].Token)
+	limits, err := state.MaintenanceHeadroom()
+	require.NoError(t, err)
+	require.Equal(t, "1.000000001", limits[0].FloatString(9))
+	require.Equal(t, int32(7), calls.Load())
 }
 
 func TestDecodeSpotMetaAndAssetCtxsWithoutTransport(t *testing.T) {
@@ -146,4 +168,14 @@ func TestOrderStatusSendsNumericOrderIDWithoutFloatConversion(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "unknownOid", status.Status)
 	require.Nil(t, status.Order)
+}
+
+func TestMaintenanceHeadroomRejectsInvalidEntries(t *testing.T) {
+	for _, raw := range []string{`[[null,"1"]]`, `[[0,"1"],[0,"2"]]`, `[[0]]`, `[[0,"bad"]]`} {
+		var state SpotStateWithMaintenance
+		require.NoError(t, json.Unmarshal([]byte(raw), &state.TokenToAvailableAfterMaintenance))
+		limits, err := state.MaintenanceHeadroom()
+		require.Error(t, err, raw)
+		require.Nil(t, limits)
+	}
 }

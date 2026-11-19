@@ -212,3 +212,40 @@ func TestReadSpotBalancesRejectsIncompleteOrMalformedAggregateWithoutFallback(t 
 	}), common.Address{})
 	require.ErrorContains(t, err, "at least one token")
 }
+
+func TestSpotBalanceSnapshotIncludesWithdrawableInSameCall(t *testing.T) {
+	user := common.HexToAddress("0xbeef")
+	userWord := word("beef")
+	spotCall := word("801") + word("0") + word("60") + word("40") + userWord + word("10000002a")
+	perpCall := word("803") + word("0") + word("60") + word("20") + userWord
+	wantInput := "82ad56cb" + word("20") + word("2") + word("40") + word("100") + spotCall + perpCall
+	for _, tc := range []struct {
+		name, output string
+		valid        bool
+	}{
+		{"complete", aggregateResponse(true, true, mainnetSpotBalance, word("2a")), true},
+		{"failed withdrawable", aggregateResponse(true, false, mainnetSpotBalance, ""), false},
+		{"wide withdrawable", aggregateResponse(true, true, mainnetSpotBalance, word("10000000000000000")), false},
+		{"missing results", word("20") + word("0"), false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			calls := 0
+			caller := checkedCaller(func(_ context.Context, msg ethereum.CallMsg, block *big.Int) ([]byte, error) {
+				calls++
+				require.Nil(t, block)
+				require.Equal(t, Multicall3Address, *msg.To)
+				require.Equal(t, mustHex(t, wantInput), msg.Data)
+				return mustHex(t, tc.output), nil
+			})
+			snapshot, err := ReadSpotBalanceSnapshot(context.Background(), caller, user, []uint64{1<<32 | 42}, true)
+			require.Equal(t, 1, calls)
+			if !tc.valid {
+				require.Error(t, err)
+				require.Equal(t, SpotBalanceSnapshot{}, snapshot)
+				return
+			}
+			require.NoError(t, err)
+			require.Equal(t, SpotBalanceSnapshot{Balances: []SpotBalance{{Total: 0x1d10f2d0}}, Withdrawable: 42}, snapshot)
+		})
+	}
+}

@@ -71,6 +71,12 @@ func NtlToUsd(ntl uint64) *big.Rat {
 	return new(big.Rat).SetFrac(new(big.Int).SetUint64(ntl), new(big.Int).Set(ntlScale))
 }
 
+// NtlToSpotUSDCWei converts six-decimal perp USD to eight-decimal spot USDC.
+// The result can exceed uint64 even when the input fits.
+func NtlToSpotUSDCWei(ntl uint64) *big.Int {
+	return units.Rescale(new(big.Int).SetUint64(ntl), NtlDecimals, 8)
+}
+
 // UsdFromScaled converts a scaled HyperCore USD value to a USD amount.
 func UsdFromScaled(scaled int64) *big.Rat {
 	return new(big.Rat).SetFrac(big.NewInt(scaled), new(big.Int).Set(ntlScale))

@@ -182,6 +182,35 @@ func (c *InfoClient) SpotClearinghouseState(ctx context.Context, user common.Add
 	return out, nil
 }
 
+// SpotClearinghouseStateWithMaintenance reads spot balances and maintenance
+// headroom together, preserving missing balance token indices.
+func (c *InfoClient) SpotClearinghouseStateWithMaintenance(ctx context.Context, user common.Address) (*SpotStateWithMaintenance, error) {
+	out := new(SpotStateWithMaintenance)
+	if err := c.userRequest(ctx, "spotClearinghouseState", user, out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// UserAbstraction reads the venue's account mode verbatim.
+func (c *InfoClient) UserAbstraction(ctx context.Context, user common.Address) (string, error) {
+	var mode string
+	if err := c.userRequest(ctx, "userAbstraction", user, &mode); err != nil {
+		return "", err
+	}
+	return mode, nil
+}
+
+// PreTransferCheck reads the venue's fee and status for a source and recipient.
+func (c *InfoClient) PreTransferCheck(ctx context.Context, source, recipient common.Address) (*TransferCheck, error) {
+	request := map[string]string{"type": "preTransferCheck", "source": strings.ToLower(source.Hex()), "user": strings.ToLower(recipient.Hex())}
+	out := new(TransferCheck)
+	if _, err := c.Post(ctx, request, out); err != nil {
+		return nil, fmt.Errorf("hyperliquid: preTransferCheck: %w", err)
+	}
+	return out, nil
+}
+
 func (c *InfoClient) ExtraAgents(ctx context.Context, user common.Address) ([]ExtraAgent, error) {
 	var out []ExtraAgent
 	if err := c.userRequest(ctx, "extraAgents", user, &out); err != nil {

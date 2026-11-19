@@ -86,30 +86,63 @@ func ReadPerpSnapshot(ctx context.Context, caller EthCaller, dex uint32, user co
 // execution at latest, returned in token order. A failed or incomplete
 // aggregate returns an error without falling back to separate reads.
 func ReadSpotBalances(ctx context.Context, caller EthCaller, user common.Address, tokens ...uint64) ([]SpotBalance, error) {
+	// Keep per-token failure diagnostics for the original spot-only reader.
+	snapshot, err := readSpotBalanceSnapshot(ctx, caller, user, tokens, false, true)
+	return snapshot.Balances, err
+}
+
+// SpotBalanceSnapshot holds spot balances in request order and, when requested,
+// perp withdrawable in raw six-decimal USD units.
+type SpotBalanceSnapshot struct {
+	Balances     []SpotBalance
+	Withdrawable uint64
+}
+
+// ReadSpotBalanceSnapshot reads one user's spot balances and optional perp
+// withdrawable in a single latest EVM execution. A failed subcall reverts the
+// aggregate. An incomplete or malformed result invalidates the entire snapshot.
+func ReadSpotBalanceSnapshot(ctx context.Context, caller EthCaller, user common.Address, tokens []uint64, withWithdrawable bool) (SpotBalanceSnapshot, error) {
+	return readSpotBalanceSnapshot(ctx, caller, user, tokens, withWithdrawable, false)
+}
+
+func readSpotBalanceSnapshot(ctx context.Context, caller EthCaller, user common.Address, tokens []uint64, withWithdrawable, allowFailure bool) (SpotBalanceSnapshot, error) {
 	if len(tokens) == 0 {
-		return nil, fmt.Errorf("hypercore: reading spot balances requires at least one token")
+		return SpotBalanceSnapshot{}, fmt.Errorf("hypercore: reading spot balances requires at least one token")
 	}
-	names := make([]string, len(tokens))
-	calls := make([]multicallCall, len(tokens))
+	names := make([]string, len(tokens), len(tokens)+1)
+	calls := make([]multicallCall, len(tokens), len(tokens)+1)
 	for i, token := range tokens {
 		input, err := spotBalanceInputs.Pack(user, token)
 		if err != nil {
-			return nil, fmt.Errorf("hypercore: packing spotBalance input: %w", err)
+			return SpotBalanceSnapshot{}, fmt.Errorf("hypercore: packing spotBalance input: %w", err)
 		}
 		names[i] = fmt.Sprintf("spotBalance(token %d)", token)
-		calls[i] = multicallCall{Target: SpotBalancePrecompile, AllowFailure: true, CallData: input}
+		calls[i] = multicallCall{Target: SpotBalancePrecompile, AllowFailure: allowFailure, CallData: input}
+	}
+	if withWithdrawable {
+		input, err := addressInputs.Pack(user)
+		if err != nil {
+			return SpotBalanceSnapshot{}, fmt.Errorf("hypercore: packing withdrawable input: %w", err)
+		}
+		names = append(names, "withdrawable")
+		calls = append(calls, multicallCall{Target: WithdrawablePrecompile, CallData: input})
 	}
 	outputs, err := aggregate3(ctx, caller, names, calls)
 	if err != nil {
-		return nil, err
+		return SpotBalanceSnapshot{}, err
 	}
-	balances := make([]SpotBalance, len(outputs))
-	for i, output := range outputs {
-		if balances[i], err = decodeSpotBalance(output); err != nil {
-			return nil, err
+	snapshot := SpotBalanceSnapshot{Balances: make([]SpotBalance, len(tokens))}
+	for i := range tokens {
+		if snapshot.Balances[i], err = decodeSpotBalance(outputs[i]); err != nil {
+			return SpotBalanceSnapshot{}, err
 		}
 	}
-	return balances, nil
+	if withWithdrawable {
+		if snapshot.Withdrawable, err = decodeWithdrawable(outputs[len(tokens)]); err != nil {
+			return SpotBalanceSnapshot{}, err
+		}
+	}
+	return snapshot, nil
 }
 
 func readMarginPair(ctx context.Context, caller EthCaller, dex uint32, user common.Address, secondName string, secondTarget common.Address, secondInput []byte) (AccountMarginSummary, []byte, error) {
