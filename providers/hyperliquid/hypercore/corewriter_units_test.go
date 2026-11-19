@@ -24,3 +24,8 @@ func TestCoreWeiToAmountNormalisesAgainstPerpScale(t *testing.T) {
 	require.Equal(t, "4.877100", spot.FloatString(6))
 	require.Equal(t, "4.877100", UsdFromScaled(4_877_100).FloatString(6))
 }
+
+func TestNtlToSpotUSDCWei(t *testing.T) {
+	require.Equal(t, "487710000", NtlToSpotUSDCWei(4_877_100).String())
+	require.Equal(t, "1844674407370955161500", NtlToSpotUSDCWei(math.MaxUint64).String())
+}

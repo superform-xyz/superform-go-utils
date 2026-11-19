@@ -10,6 +10,31 @@ import (
 
 var maxCoreWei = new(big.Int).SetUint64(math.MaxUint64)
 
+// AmountToCoreWei converts a non-negative token amount to exact Core wei.
+func AmountToCoreWei(amount *big.Rat, weiDecimals uint8) (uint64, error) {
+	return amountToCoreWei(amount, weiDecimals, false)
+}
+
+// AmountToCoreWeiFloor rounds a non-negative token amount down to Core wei.
+func AmountToCoreWeiFloor(amount *big.Rat, weiDecimals uint8) (uint64, error) {
+	return amountToCoreWei(amount, weiDecimals, true)
+}
+
+func amountToCoreWei(amount *big.Rat, decimals uint8, floor bool) (uint64, error) {
+	if amount == nil || amount.Sign() < 0 {
+		return 0, fmt.Errorf("token amount must be non-negative")
+	}
+	scaled := new(big.Rat).Mul(amount, new(big.Rat).SetInt(units.Pow10(uint(decimals))))
+	if !floor && !scaled.IsInt() {
+		return 0, fmt.Errorf("token amount has fractional Core wei")
+	}
+	wei := new(big.Int).Quo(scaled.Num(), scaled.Denom())
+	if !wei.IsUint64() {
+		return 0, fmt.Errorf("token amount exceeds Core uint64")
+	}
+	return wei.Uint64(), nil
+}
+
 // EvmToCoreWei converts an EVM token amount to HyperCore wei.
 func EvmToCoreWei(evmAmount *big.Int, evmExtraWeiDecimals int8) (uint64, error) {
 	coreWei, remainder, err := evmToCoreWei(evmAmount, evmExtraWeiDecimals)

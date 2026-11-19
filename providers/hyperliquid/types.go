@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"math/big"
 
 	"github.com/ethereum/go-ethereum/common"
 )
@@ -52,6 +53,51 @@ type SpotBalance struct {
 
 type SpotState struct {
 	Balances []SpotBalance `json:"balances"`
+}
+
+// SpotStateWithMaintenance preserves the distinction between an omitted token
+// index and USDC (index zero) as well as missing versus empty lists.
+type SpotStateWithMaintenance struct {
+	Balances                         []IndexedSpotBalance `json:"balances"`
+	TokenToAvailableAfterMaintenance [][]json.RawMessage  `json:"tokenToAvailableAfterMaintenance"`
+}
+
+// IndexedSpotBalance holds the venue's optional token index and decimal amounts.
+type IndexedSpotBalance struct {
+	Token *uint64 `json:"token"`
+	Total string  `json:"total"`
+	Hold  string  `json:"hold"`
+}
+
+// MaintenanceHeadroom indexes the venue's [token, amount] pairs, retaining
+// decimal precision. A missing list returns nil, an empty list an empty map.
+func (s SpotStateWithMaintenance) MaintenanceHeadroom() (map[uint64]*big.Rat, error) {
+	if s.TokenToAvailableAfterMaintenance == nil {
+		return nil, nil
+	}
+	headroom := make(map[uint64]*big.Rat, len(s.TokenToAvailableAfterMaintenance))
+	for _, pair := range s.TokenToAvailableAfterMaintenance {
+		var token *uint64
+		var amount string
+		if len(pair) != 2 || json.Unmarshal(pair[0], &token) != nil || token == nil || json.Unmarshal(pair[1], &amount) != nil {
+			return nil, fmt.Errorf("invalid maintenance headroom entry")
+		}
+		if _, duplicate := headroom[*token]; duplicate {
+			return nil, fmt.Errorf("duplicate maintenance headroom for token %d", *token)
+		}
+		limit, err := ParseAmount(amount)
+		if err != nil {
+			return nil, fmt.Errorf("parsing maintenance headroom for token %d: %w", *token, err)
+		}
+		headroom[*token] = limit
+	}
+	return headroom, nil
+}
+
+// TransferCheck contains the venue's quoted fee and sanctions status.
+type TransferCheck struct {
+	Fee          *string `json:"fee"`
+	IsSanctioned bool    `json:"isSanctioned"`
 }
 
 type ExtraAgent struct {

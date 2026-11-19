@@ -17,6 +17,33 @@ var measuredExtraDecimals = map[string]int8{
 	"USDHL": -1,
 }
 
+func TestTokenAmountToCoreWei(t *testing.T) {
+	maxWei := new(big.Int).SetUint64(math.MaxUint64)
+	amount := CoreWeiToAmount(math.MaxUint64, 8)
+	wei, err := AmountToCoreWei(amount, 8)
+	require.NoError(t, err)
+	require.Equal(t, maxWei.Uint64(), wei)
+
+	withDust := new(big.Rat).Add(amount, big.NewRat(1, 1_000_000_000))
+	original := new(big.Rat).Set(withDust)
+	_, err = AmountToCoreWei(withDust, 8)
+	require.Error(t, err)
+	wei, err = AmountToCoreWeiFloor(withDust, 8)
+	require.NoError(t, err)
+	require.Equal(t, maxWei.Uint64(), wei)
+	require.Equal(t, original, withDust)
+
+	for _, convert := range []func(*big.Rat, uint8) (uint64, error){AmountToCoreWei, AmountToCoreWeiFloor} {
+		wei, err = convert(new(big.Rat), 8)
+		require.NoError(t, err)
+		require.Zero(t, wei)
+		for _, invalid := range []*big.Rat{nil, big.NewRat(-1, 1), new(big.Rat).Add(amount, big.NewRat(1, 1))} {
+			_, err := convert(invalid, 8)
+			require.Error(t, err)
+		}
+	}
+}
+
 func TestEvmToCoreWeiExactAcrossMeasuredTokens(t *testing.T) {
 	cases := []struct {
 		token   string

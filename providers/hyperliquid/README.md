@@ -15,7 +15,10 @@ HTTP client; a nil client uses a five-second timeout. An empty endpoint selects
 the public mainnet info endpoint, so applications requiring explicit
 configuration must validate it in their adapter. Named methods cover account
 state, spot state, agents, perp and spot metadata, order status, user request
-allowance and raw non-funding ledger pages.
+allowance and raw non-funding ledger pages. `UserAbstraction` reads the account
+mode, `PreTransferCheck` reads a route’s transfer fee and sanctions status, and
+`SpotClearinghouseStateWithMaintenance` reads indexed balances and per-token
+maintenance headroom in a single response.
 `Post` supports other info request/response shapes without another transport.
 
 There are no automatic retries, budgets or caches. Applications retain request
@@ -144,6 +147,11 @@ never retry through separate calls. Applications accepting sequential fallback
 must make that choice explicitly and retain the loss of atomicity. RPC block
 tags and independently fetched EVM heads do not establish historical HyperCore
 provenance; these results carry no block number.
+
+`ReadSpotBalanceSnapshot` reads spot balances in request order and can include
+perp withdrawable in the same EVM execution. Any failed subcall reverts the
+aggregate. Spot balances use each token’s wei scale. Perp withdrawable uses
+six-decimal USD.
 
 Precompile output must have canonical ABI encoding and the expected widths.
 Withdrawable is read directly; it is not derived from equity minus margin.
