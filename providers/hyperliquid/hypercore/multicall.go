@@ -145,6 +145,36 @@ func readSpotBalanceSnapshot(ctx context.Context, caller EthCaller, user common.
 	return snapshot, nil
 }
 
+// ReadTokenInfos reads several spot tokens' metadata in one EVM execution at
+// latest, returned in token order. A failed or incomplete aggregate returns an
+// error without falling back to separate reads.
+func ReadTokenInfos(ctx context.Context, caller EthCaller, tokens []uint32) ([]TokenInfo, error) {
+	if len(tokens) == 0 {
+		return nil, fmt.Errorf("hypercore: reading token info requires at least one token")
+	}
+	names := make([]string, len(tokens))
+	calls := make([]multicallCall, len(tokens))
+	for i, token := range tokens {
+		input, err := tokenInfoInputs.Pack(token)
+		if err != nil {
+			return nil, fmt.Errorf("hypercore: packing tokenInfo input: %w", err)
+		}
+		names[i] = fmt.Sprintf("tokenInfo(token %d)", token)
+		calls[i] = multicallCall{Target: TokenInfoPrecompile, CallData: input}
+	}
+	outputs, err := aggregate3(ctx, caller, names, calls)
+	if err != nil {
+		return nil, err
+	}
+	infos := make([]TokenInfo, len(tokens))
+	for i, token := range tokens {
+		if infos[i], err = decodeTokenInfo(outputs[i]); err != nil {
+			return nil, fmt.Errorf("hypercore: token %d: %w", token, err)
+		}
+	}
+	return infos, nil
+}
+
 func readMarginPair(ctx context.Context, caller EthCaller, dex uint32, user common.Address, secondName string, secondTarget common.Address, secondInput []byte) (AccountMarginSummary, []byte, error) {
 	marginInput, err := accountMarginInputs.Pack(dex, user)
 	if err != nil {

@@ -172,6 +172,10 @@ func ReadTokenInfo(ctx context.Context, caller EthCaller, token uint32) (TokenIn
 	if err != nil {
 		return TokenInfo{}, err
 	}
+	return decodeTokenInfo(out)
+}
+
+func decodeTokenInfo(out []byte) (TokenInfo, error) {
 	values, err := unpackCanonical("tokenInfo", tokenInfoOutputs, out, 0)
 	if err != nil {
 		return TokenInfo{}, err

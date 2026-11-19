@@ -249,3 +249,54 @@ func TestSpotBalanceSnapshotIncludesWithdrawableInSameCall(t *testing.T) {
 		})
 	}
 }
+
+func TestReadTokenInfosUsesOneLatestExecution(t *testing.T) {
+	infoCall := func(token string) string {
+		return word("80c") + word("0") + word("60") + word("20") + word(token)
+	}
+	expectedInput := "82ad56cb" + word("20") + word("2") + word("40") + word("e0") + infoCall("0") + infoCall("c8")
+	usde := TokenInfo{
+		Name: "USDE", Spots: []uint64{166}, EvmContract: common.HexToAddress("0x5d3a1Ff2b6BAb83b63cd9AD0787074081a52ef34"),
+		SzDecimals: 2, WeiDecimals: 8, EvmExtraWeiDecimals: 10,
+	}
+	packed, err := tokenInfoOutputs.Pack(usde)
+	require.NoError(t, err)
+	calls := 0
+	caller := checkedCaller(func(_ context.Context, call ethereum.CallMsg, block *big.Int) ([]byte, error) {
+		calls++
+		require.Equal(t, Multicall3Address, *call.To)
+		require.Nil(t, block)
+		require.Equal(t, mustHex(t, expectedInput), call.Data)
+		return mustHex(t, aggregateResponse(true, true, mainnetTokenInfoUSDC, fmt.Sprintf("%x", packed))), nil
+	})
+	infos, err := ReadTokenInfos(context.Background(), caller, []uint32{USDCTokenIndex, 200})
+	require.NoError(t, err)
+	require.Len(t, infos, 2)
+	require.Equal(t, "USDC", infos[0].Name)
+	require.Equal(t, uint8(8), infos[0].WeiDecimals)
+	require.Equal(t, usde, infos[1])
+	require.Equal(t, 1, calls)
+}
+
+func TestReadTokenInfosRejectsIncompleteAggregateWithoutFallback(t *testing.T) {
+	for _, test := range []struct{ name, out, want string }{
+		{"failed subcall", aggregateResponse(true, false, mainnetTokenInfoUSDC, ""), "tokenInfo(token 200) subcall failed"},
+		{"malformed info", aggregateResponse(true, true, mainnetTokenInfoUSDC, word("1")), "token 200"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			calls := 0
+			caller := checkedCaller(func(context.Context, ethereum.CallMsg, *big.Int) ([]byte, error) {
+				calls++
+				return mustHex(t, test.out), nil
+			})
+			_, err := ReadTokenInfos(context.Background(), caller, []uint32{USDCTokenIndex, 200})
+			require.ErrorContains(t, err, test.want)
+			require.Equal(t, 1, calls, "failed reads must not trigger separate fallback reads")
+		})
+	}
+	_, err := ReadTokenInfos(context.Background(), checkedCaller(func(context.Context, ethereum.CallMsg, *big.Int) ([]byte, error) {
+		t.Fatal("an empty token list must not call the RPC")
+		return nil, nil
+	}), nil)
+	require.ErrorContains(t, err, "at least one token")
+}
