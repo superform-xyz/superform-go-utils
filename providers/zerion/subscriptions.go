@@ -194,7 +194,8 @@ func (c *txSubscriptionClient) CreateSubscription(ctx context.Context, req Creat
 	if err != nil {
 		return TxSubscription{}, meta, err
 	}
-	return out.Data.toSubscription(), meta, nil
+	sub, err := out.toSubscription()
+	return sub, meta, err
 }
 
 func (c *txSubscriptionClient) GetSubscription(ctx context.Context, id string) (TxSubscription, ResponseMeta, error) {
@@ -207,7 +208,11 @@ func (c *txSubscriptionClient) GetSubscription(ctx context.Context, id string) (
 	if err != nil {
 		return TxSubscription{}, meta, err
 	}
-	return out.Data.toSubscription(), meta, nil
+	sub, err := out.toSubscription()
+	if err == nil && sub.ID != strings.TrimSpace(id) {
+		return TxSubscription{}, meta, fmt.Errorf("zerion: subscription response ID %q does not match requested ID %q", sub.ID, id)
+	}
+	return sub, meta, err
 }
 
 type patchWalletsBody struct {
@@ -596,7 +601,22 @@ func decodeWalletAddresses(raw json.RawMessage) []string {
 }
 
 type subscriptionDocument struct {
-	Data subscriptionResource `json:"data"`
+	Data *subscriptionResource `json:"data"`
+	subscriptionResource
+}
+
+// The API returns a bare subscription resource in production and documents a
+// data wrapper. Accept both response shapes and require an ID.
+func (d subscriptionDocument) toSubscription() (TxSubscription, error) {
+	resource := d.subscriptionResource
+	if d.Data != nil {
+		resource = *d.Data
+	}
+	sub := resource.toSubscription()
+	if sub.ID == "" {
+		return TxSubscription{}, errors.New("zerion: subscription response missing ID")
+	}
+	return sub, nil
 }
 
 type subscriptionResource struct {
@@ -604,6 +624,7 @@ type subscriptionResource struct {
 	Attributes struct {
 		CallbackURL string          `json:"callback_url"`
 		Status      string          `json:"status"`
+		Enabled     *bool           `json:"enabled"`
 		ChainIDs    []string        `json:"chain_ids"`
 		Filters     json.RawMessage `json:"filters"`
 	} `json:"attributes"`
@@ -617,6 +638,12 @@ func (r subscriptionResource) toSubscription() TxSubscription {
 		ID:          strings.TrimSpace(r.ID),
 		CallbackURL: r.Attributes.CallbackURL,
 		Status:      strings.TrimSpace(r.Attributes.Status),
+	}
+	if sub.Status == "" && r.Attributes.Enabled != nil {
+		sub.Status = "disabled"
+		if *r.Attributes.Enabled {
+			sub.Status = "enabled"
+		}
 	}
 	if f := bytes.TrimSpace(r.Attributes.Filters); len(f) > 0 && !bytes.Equal(f, []byte("null")) {
 		sub.Filters = append(json.RawMessage(nil), f...)

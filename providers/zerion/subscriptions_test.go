@@ -85,6 +85,46 @@ func TestTxSubscriptionCreateAndGet(t *testing.T) {
 	assert.Error(t, err)
 }
 
+func TestTxSubscriptionBareResource(t *testing.T) {
+	c, _ := newSubscriptionTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		enabled := r.Method == http.MethodPost
+		if enabled {
+			w.WriteHeader(http.StatusCreated)
+		}
+		_, _ = fmt.Fprintf(w, `{"type":"subscriptions","id":"sub-1","attributes":{
+			"callback_url":"https://cb.example/webhooks/zerion","enabled":%t,"filters":{"exclude":{"is_spam":true}}
+		},"relationships":{"chains":[{"data":{"type":"chains","id":"base"}}]}}`, enabled)
+	})
+
+	created, _, err := c.CreateSubscription(t.Context(), CreateTxSubscriptionRequest{
+		CallbackURL: "https://cb.example/webhooks/zerion",
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "sub-1", created.ID)
+	assert.Equal(t, "https://cb.example/webhooks/zerion", created.CallbackURL)
+	assert.Equal(t, "enabled", created.Status)
+	assert.Equal(t, []string{"base"}, created.ChainIDs)
+	assert.JSONEq(t, `{"exclude":{"is_spam":true}}`, string(created.Filters))
+
+	stored, _, err := c.GetSubscription(t.Context(), created.ID)
+	require.NoError(t, err)
+	assert.Equal(t, "disabled", stored.Status)
+	_, _, err = c.GetSubscription(t.Context(), "different-id")
+	require.ErrorContains(t, err, "does not match requested ID")
+}
+
+func TestCreateSubscriptionRejectsMissingID(t *testing.T) {
+	c, _ := newSubscriptionTestClient(t, func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusCreated)
+		_, _ = w.Write([]byte(`{"data":{"attributes":{"enabled":true}}}`))
+	})
+	_, meta, err := c.CreateSubscription(t.Context(), CreateTxSubscriptionRequest{
+		CallbackURL: "https://cb.example/webhooks/zerion",
+	})
+	require.ErrorContains(t, err, "subscription response missing ID")
+	assert.Equal(t, http.StatusCreated, meta.StatusCode)
+}
+
 func TestTxSubscriptionPatchWallets(t *testing.T) {
 	var calls atomic.Int64
 	var lastBody atomic.Value
