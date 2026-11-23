@@ -6,6 +6,11 @@ filename: "mock_{{.InterfaceName | snakecase}}.go"
 mockname: "Mock{{.InterfaceName}}"
 outpkg: "mocks"
 packages:
+  github.com/superform-xyz/superform-go-utils/evm/multicall3:
+    config:
+      dir: "evm/multicall3/mocks"
+    interfaces:
+      Caller:
   github.com/superform-xyz/superform-go-utils/pkg/http_client:
     config:
       dir: "pkg/http_client/mocks"

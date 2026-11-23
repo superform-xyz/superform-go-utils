@@ -4,34 +4,12 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/crypto"
+	"github.com/superform-xyz/superform-go-utils/evm/multicall3"
 )
 
 // Multicall3Address is the canonical Multicall3 deployment.
-var Multicall3Address = common.HexToAddress("0xcA11bde05977b3631167028862bE2a173976CA11")
-
-type multicallCall struct {
-	Target       common.Address
-	AllowFailure bool
-	CallData     []byte
-}
-
-type multicallResult struct {
-	Success    bool
-	ReturnData []byte
-}
-
-var (
-	aggregate3Selector = crypto.Keccak256([]byte("aggregate3((address,bool,bytes)[])"))[:4]
-	aggregate3Inputs   = abi.Arguments{{Type: mustABIType("tuple[]", []abi.ArgumentMarshaling{
-		{Name: "target", Type: "address"}, {Name: "allowFailure", Type: "bool"}, {Name: "callData", Type: "bytes"},
-	})}}
-	aggregate3Outputs = abi.Arguments{{Type: mustABIType("tuple[]", []abi.ArgumentMarshaling{
-		{Name: "success", Type: "bool"}, {Name: "returnData", Type: "bytes"},
-	})}}
-)
+var Multicall3Address = common.HexToAddress(multicall3.CanonicalAddress)
 
 // MarginAndSpot contains two values observed in one EVM execution at latest.
 // It carries no historical HyperCore block provenance.
@@ -110,14 +88,14 @@ func readSpotBalanceSnapshot(ctx context.Context, caller EthCaller, user common.
 		return SpotBalanceSnapshot{}, fmt.Errorf("hypercore: reading spot balances requires at least one token")
 	}
 	names := make([]string, len(tokens), len(tokens)+1)
-	calls := make([]multicallCall, len(tokens), len(tokens)+1)
+	calls := make([]multicall3.Call, len(tokens), len(tokens)+1)
 	for i, token := range tokens {
 		input, err := spotBalanceInputs.Pack(user, token)
 		if err != nil {
 			return SpotBalanceSnapshot{}, fmt.Errorf("hypercore: packing spotBalance input: %w", err)
 		}
 		names[i] = fmt.Sprintf("spotBalance(token %d)", token)
-		calls[i] = multicallCall{Target: SpotBalancePrecompile, AllowFailure: allowFailure, CallData: input}
+		calls[i] = multicall3.Call{Target: SpotBalancePrecompile, AllowFailure: allowFailure, CallData: input}
 	}
 	if withWithdrawable {
 		input, err := addressInputs.Pack(user)
@@ -125,7 +103,7 @@ func readSpotBalanceSnapshot(ctx context.Context, caller EthCaller, user common.
 			return SpotBalanceSnapshot{}, fmt.Errorf("hypercore: packing withdrawable input: %w", err)
 		}
 		names = append(names, "withdrawable")
-		calls = append(calls, multicallCall{Target: WithdrawablePrecompile, CallData: input})
+		calls = append(calls, multicall3.Call{Target: WithdrawablePrecompile, CallData: input})
 	}
 	outputs, err := aggregate3(ctx, caller, names, calls)
 	if err != nil {
@@ -153,14 +131,14 @@ func ReadTokenInfos(ctx context.Context, caller EthCaller, tokens []uint32) ([]T
 		return nil, fmt.Errorf("hypercore: reading token info requires at least one token")
 	}
 	names := make([]string, len(tokens))
-	calls := make([]multicallCall, len(tokens))
+	calls := make([]multicall3.Call, len(tokens))
 	for i, token := range tokens {
 		input, err := tokenInfoInputs.Pack(token)
 		if err != nil {
 			return nil, fmt.Errorf("hypercore: packing tokenInfo input: %w", err)
 		}
 		names[i] = fmt.Sprintf("tokenInfo(token %d)", token)
-		calls[i] = multicallCall{Target: TokenInfoPrecompile, CallData: input}
+		calls[i] = multicall3.Call{Target: TokenInfoPrecompile, CallData: input}
 	}
 	outputs, err := aggregate3(ctx, caller, names, calls)
 	if err != nil {
@@ -180,7 +158,7 @@ func readMarginPair(ctx context.Context, caller EthCaller, dex uint32, user comm
 	if err != nil {
 		return AccountMarginSummary{}, nil, fmt.Errorf("hypercore: packing accountMarginSummary input: %w", err)
 	}
-	outputs, err := aggregate3(ctx, caller, []string{"accountMarginSummary", secondName}, []multicallCall{
+	outputs, err := aggregate3(ctx, caller, []string{"accountMarginSummary", secondName}, []multicall3.Call{
 		{Target: AccountMarginSummaryPrecompile, AllowFailure: true, CallData: marginInput},
 		{Target: secondTarget, AllowFailure: true, CallData: secondInput},
 	})
@@ -197,29 +175,33 @@ func readMarginPair(ctx context.Context, caller EthCaller, dex uint32, user comm
 // aggregate3 runs calls in one EVM execution at latest and returns each
 // subcall's return data in call order. A failed subcall, or a result count that
 // differs from the calls, is an error rather than a partial result.
-func aggregate3(ctx context.Context, caller EthCaller, names []string, calls []multicallCall) ([][]byte, error) {
-	input, err := aggregate3Inputs.Pack(calls)
+func aggregate3(ctx context.Context, caller EthCaller, names []string, calls []multicall3.Call) ([][]byte, error) {
+	contractABI, err := multicall3.Multicall3MetaData.GetAbi()
+	if err != nil {
+		return nil, fmt.Errorf("hypercore: loading Multicall3 ABI: %w", err)
+	}
+	data, err := contractABI.Pack("aggregate3", calls)
 	if err != nil {
 		return nil, fmt.Errorf("hypercore: packing aggregate3 input: %w", err)
 	}
-	data := append(append([]byte{}, aggregate3Selector...), input...)
 	out, err := callLatest(ctx, caller, "aggregate3", Multicall3Address, data)
 	if err != nil {
 		return nil, err
 	}
-	values, err := unpackCanonical("aggregate3", aggregate3Outputs, out, 0)
+	method := contractABI.Methods["aggregate3"]
+	values, err := unpackCanonical("aggregate3", method.Outputs, out, 0)
 	if err != nil {
 		return nil, err
 	}
-	results, ok := abi.ConvertType(values[0], new([]multicallResult)).(*[]multicallResult)
-	if !ok || results == nil {
-		return nil, fmt.Errorf("hypercore: aggregate3 output is not a result array")
+	var results []multicall3.Result
+	if err := method.Outputs.Copy(&results, values); err != nil {
+		return nil, fmt.Errorf("hypercore: decoding aggregate3 results: %w", err)
 	}
-	if len(*results) != len(calls) {
-		return nil, fmt.Errorf("hypercore: aggregate3 returned %d results, want %d", len(*results), len(calls))
+	if len(results) != len(calls) {
+		return nil, fmt.Errorf("hypercore: aggregate3 returned %d results, want %d", len(results), len(calls))
 	}
 	outputs := make([][]byte, len(calls))
-	for i, result := range *results {
+	for i, result := range results {
 		if !result.Success {
 			return nil, fmt.Errorf("hypercore: %s subcall failed inside aggregate3", names[i])
 		}

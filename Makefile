@@ -2,7 +2,7 @@ CHECK_GO := $(shell command -v go 2> /dev/null)
 CHECK_MOCKERY := $(shell command -v mockery 2> /dev/null)
 CGO_ENABLED ?= 0
 
-.PHONY: help check-go check-mockery fmt tidy test generate generate-mocks
+.PHONY: help check-go check-mockery fmt tidy test generate generate-abi generate-mocks
 
 help:
 	@echo "Targets:"
@@ -10,6 +10,7 @@ help:
 	@echo "  make tidy             Run go mod tidy"
 	@echo "  make test             Run all tests"
 	@echo "  make generate         Generate all generated code"
+	@echo "  make generate-abi     Regenerate the Multicall3 binding"
 	@echo "  make generate-mocks   Generate mocks with mockery"
 
 check-go:
@@ -31,7 +32,12 @@ tidy: check-go
 test: check-go
 	CGO_ENABLED=$(CGO_ENABLED) go test ./...
 
-generate: generate-mocks
+generate: generate-abi generate-mocks
+
+generate-abi: check-go
+	go run github.com/ethereum/go-ethereum/cmd/abigen@$$(go list -m -f '{{.Version}}' github.com/ethereum/go-ethereum) \
+		--abi evm/multicall3/Multicall3.json --pkg multicall3 --type Multicall3 \
+		--out evm/multicall3/Multicall3.generated.go
 
 generate-mocks: check-mockery
 	mockery
