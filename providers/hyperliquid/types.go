@@ -173,6 +173,10 @@ type OrderStatusEntry struct {
 	StatusTimestamp int64            `json:"statusTimestamp,omitempty"`
 }
 
+// OrderStatusIOCCancelRejected is the OrderStatusEntry.Status reported when an
+// immediate-or-cancel order could not match.
+const OrderStatusIOCCancelRejected = "iocCancelRejected"
+
 type OrderStatusOrder struct {
 	OrderID uint64 `json:"oid"`
 	Cloid   string `json:"cloid"`
