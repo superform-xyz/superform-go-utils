@@ -173,9 +173,40 @@ type OrderStatusEntry struct {
 	StatusTimestamp int64            `json:"statusTimestamp,omitempty"`
 }
 
-// OrderStatusIOCCancelRejected is the OrderStatusEntry.Status reported when an
-// immediate-or-cancel order could not match.
-const OrderStatusIOCCancelRejected = "iocCancelRejected"
+// These values describe an individual order in OrderStatusEntry.Status.
+// OrderStatusResponse.Status separately identifies the lookup result.
+// See https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/info-endpoint#query-order-status-by-oid-or-cloid.
+const (
+	OrderStatusOpen                                      = "open"
+	OrderStatusFilled                                    = "filled"
+	OrderStatusCanceled                                  = "canceled"
+	OrderStatusTriggered                                 = "triggered"
+	OrderStatusRejected                                  = "rejected"
+	OrderStatusMarginCanceled                            = "marginCanceled"
+	OrderStatusVaultWithdrawalCanceled                   = "vaultWithdrawalCanceled"
+	OrderStatusOpenInterestCapCanceled                   = "openInterestCapCanceled"
+	OrderStatusSelfTradeCanceled                         = "selfTradeCanceled"
+	OrderStatusReduceOnlyCanceled                        = "reduceOnlyCanceled"
+	OrderStatusSiblingFilledCanceled                     = "siblingFilledCanceled"
+	OrderStatusDelistedCanceled                          = "delistedCanceled"
+	OrderStatusLiquidatedCanceled                        = "liquidatedCanceled"
+	OrderStatusScheduledCancel                           = "scheduledCancel"
+	OrderStatusTickRejected                              = "tickRejected"
+	OrderStatusMinTradeNtlRejected                       = "minTradeNtlRejected"
+	OrderStatusPerpMarginRejected                        = "perpMarginRejected"
+	OrderStatusReduceOnlyRejected                        = "reduceOnlyRejected"
+	OrderStatusBadALOPxRejected                          = "badAloPxRejected"
+	OrderStatusIOCCancelRejected                         = "iocCancelRejected"
+	OrderStatusBadTriggerPxRejected                      = "badTriggerPxRejected"
+	OrderStatusMarketOrderNoLiquidityRejected            = "marketOrderNoLiquidityRejected"
+	OrderStatusPositionIncreaseAtOpenInterestCapRejected = "positionIncreaseAtOpenInterestCapRejected"
+	OrderStatusPositionFlipAtOpenInterestCapRejected     = "positionFlipAtOpenInterestCapRejected"
+	OrderStatusTooAggressiveAtOpenInterestCapRejected    = "tooAggressiveAtOpenInterestCapRejected"
+	OrderStatusOpenInterestIncreaseRejected              = "openInterestIncreaseRejected"
+	OrderStatusInsufficientSpotBalanceRejected           = "insufficientSpotBalanceRejected"
+	OrderStatusOracleRejected                            = "oracleRejected"
+	OrderStatusPerpMaxPositionRejected                   = "perpMaxPositionRejected"
+)
 
 type OrderStatusOrder struct {
 	OrderID uint64 `json:"oid"`
